@@ -4,8 +4,7 @@
   "type": "object",
   "required": [
     "accepted_token",
-    "admin",
-    "withdrawal_allowed_from"
+    "admin"
   ],
   "properties": {
     "accepted_token": {
@@ -13,11 +12,6 @@
     },
     "admin": {
       "$ref": "#/definitions/HumanAddr"
-    },
-    "withdrawal_allowed_from": {
-      "type": "integer",
-      "format": "uint64",
-      "minimum": 0.0
     }
   },
   "definitions": {
