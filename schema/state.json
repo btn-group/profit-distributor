@@ -6,6 +6,7 @@
     "accepted_token",
     "admin",
     "contract_address",
+    "pool_shares_token",
     "viewing_key"
   ],
   "properties": {
@@ -17,6 +18,9 @@
     },
     "contract_address": {
       "$ref": "#/definitions/HumanAddr"
+    },
+    "pool_shares_token": {
+      "$ref": "#/definitions/SecretContract"
     },
     "viewing_key": {
       "type": "string"

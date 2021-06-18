@@ -4,10 +4,14 @@
   "type": "object",
   "required": [
     "accepted_token",
+    "pool_shares_token",
     "viewing_key"
   ],
   "properties": {
     "accepted_token": {
+      "$ref": "#/definitions/SecretContract"
+    },
+    "pool_shares_token": {
       "$ref": "#/definitions/SecretContract"
     },
     "viewing_key": {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InitMsg {
     pub accepted_token: SecretContract,
+    pub pool_shares_token: SecretContract,
     pub viewing_key: String,
 }
 
