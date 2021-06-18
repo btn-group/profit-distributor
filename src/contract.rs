@@ -17,6 +17,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         accepted_token: msg.accepted_token.clone(),
         admin: env.message.sender,
         contract_address: env.contract.address,
+        pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
     };
 
@@ -135,9 +136,14 @@ mod tests {
             address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
             contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
         };
+        let pool_shares_token = SecretContract {
+            address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
+            contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
+        };
         let mut deps = mock_dependencies(20, &[]);
         let msg = InitMsg {
             accepted_token: accepted_token.clone(),
+            pool_shares_token: pool_shares_token.clone(),
             viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
         };
         (init(&mut deps, env.clone(), msg), deps)

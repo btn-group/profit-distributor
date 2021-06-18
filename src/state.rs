@@ -16,6 +16,7 @@ pub struct State {
     pub accepted_token: SecretContract,
     pub admin: HumanAddr,
     pub contract_address: HumanAddr,
+    pub pool_shares_token: SecretContract,
     pub viewing_key: String,
 }
 
