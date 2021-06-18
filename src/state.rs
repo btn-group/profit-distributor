@@ -17,7 +17,6 @@ pub struct State {
     pub admin: HumanAddr,
     pub contract_address: HumanAddr,
     pub viewing_key: String,
-    pub withdrawal_allowed_from: u64,
 }
 
 pub fn config<S: Storage>(storage: &mut S) -> Singleton<S, State> {

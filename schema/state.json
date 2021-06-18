@@ -6,8 +6,7 @@
     "accepted_token",
     "admin",
     "contract_address",
-    "viewing_key",
-    "withdrawal_allowed_from"
+    "viewing_key"
   ],
   "properties": {
     "accepted_token": {
@@ -21,11 +20,6 @@
     },
     "viewing_key": {
       "type": "string"
-    },
-    "withdrawal_allowed_from": {
-      "type": "integer",
-      "format": "uint64",
-      "minimum": 0.0
     }
   },
   "definitions": {
