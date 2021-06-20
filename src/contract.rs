@@ -2,7 +2,7 @@ use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
 use crate::state::{config, config_read, State};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
-    StdError, StdResult, Storage,
+    StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::snip20;
 
@@ -54,6 +54,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     match msg {
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        HandleMsg::Receive {
+            from, amount, msg, ..
+        } => receive(deps, env, from, amount, msg),
     }
 }
 
@@ -65,6 +68,34 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         QueryMsg::AcceptedTokenAvailable {} => to_binary(&accepted_token_available(deps)?),
         QueryMsg::Config {} => to_binary(&public_config(deps)?),
     }
+}
+
+fn receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    from: HumanAddr,
+    amount: Uint128,
+    _msg: Binary,
+) -> StdResult<HandleResponse> {
+    let mut messages = vec![];
+    let state = config_read(&deps.storage).load()?;
+    // If Buttcoin is sent to this contract, mint the user the pool share tokens
+    if env.message.sender == state.accepted_token.address {
+        messages.push(snip20::mint_msg(
+            from,
+            amount,
+            None,
+            RESPONSE_BLOCK_SIZE,
+            state.pool_shares_token.contract_hash,
+            state.pool_shares_token.address,
+        )?)
+    }
+
+    Ok(HandleResponse {
+        messages: messages,
+        log: vec![],
+        data: None,
+    })
 }
 
 fn accepted_token_available<S: Storage, A: Api, Q: Querier>(
@@ -118,13 +149,15 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::msg::ReceiveMsg;
     use crate::state::SecretContract;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
 
     pub const MOCK_ADMIN: &str = "admin";
-    pub const MOCK_ACCEPTED_TOKEN_ADDRESS: &str = "sefismartcontractaddress";
-    pub const MOCK_ACCEPTED_TOKEN_CONTRACT_HASH: &str = "Buttcoin";
+    pub const MOCK_ACCEPTED_TOKEN_ADDRESS: &str = "buttcoincontractaddress";
+    pub const MOCK_ACCEPTED_TOKEN_CONTRACT_HASH: &str = "buttcoincontracthash";
+    pub const MOCK_POOL_TOKEN_ADDRESS: &str = "buttcoinprofitsharecontractaddress";
 
     // === HELPERS ===
     fn init_helper() -> (
@@ -194,5 +227,42 @@ mod tests {
             },
             value
         );
+    }
+
+    #[test]
+    fn test_receive_accepted_token_callback() {
+        let (_init_result, mut deps) = init_helper();
+        let amount: Uint128 = Uint128(333);
+        let from: HumanAddr = HumanAddr::from("someuser");
+
+        // Accepted token
+        let msg = HandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ReceiveMsg::Deposit {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(MOCK_ACCEPTED_TOKEN_ADDRESS, &[]),
+            msg.clone(),
+        );
+        let res = handle_response.unwrap();
+        assert_eq!(1, res.messages.len());
+
+        // Other token
+        let msg = HandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from,
+            msg: to_binary(&ReceiveMsg::Deposit {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(MOCK_POOL_TOKEN_ADDRESS, &[]),
+            msg.clone(),
+        );
+        let res = handle_response.unwrap();
+        assert_eq!(0, res.messages.len());
     }
 }
