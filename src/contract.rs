@@ -1,5 +1,5 @@
 use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
-use crate::state::{config, config_read, State};
+use crate::state::{config, config_read, SecretContract, State};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
     StdError, StdResult, Storage, Uint128,
@@ -65,7 +65,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: QueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        QueryMsg::AcceptedTokenAvailable {} => to_binary(&accepted_token_available(deps)?),
+        QueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
         QueryMsg::Config {} => to_binary(&public_config(deps)?),
     }
 }
@@ -98,8 +98,9 @@ fn receive<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn accepted_token_available<S: Storage, A: Api, Q: Querier>(
+fn balance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
+    token: SecretContract,
 ) -> StdResult<BalanceResponse> {
     let state = config_read(&deps.storage).load()?;
     let balance = snip20::balance_query(
@@ -107,8 +108,8 @@ fn accepted_token_available<S: Storage, A: Api, Q: Querier>(
         state.contract_address,
         state.viewing_key,
         RESPONSE_BLOCK_SIZE,
-        state.accepted_token.contract_hash,
-        state.accepted_token.address,
+        token.contract_hash,
+        token.address,
     )?;
     Ok(BalanceResponse {
         amount: balance.amount,
