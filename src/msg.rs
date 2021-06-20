@@ -23,6 +23,9 @@ pub enum HandleMsg {
         amount: Uint128,
         msg: Binary,
     },
+    SetViewingKey {
+        token: SecretContract,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
