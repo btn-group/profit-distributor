@@ -5,11 +5,19 @@
     {
       "type": "object",
       "required": [
-        "accepted_token_available"
+        "balance"
       ],
       "properties": {
-        "accepted_token_available": {
-          "type": "object"
+        "balance": {
+          "type": "object",
+          "required": [
+            "token"
+          ],
+          "properties": {
+            "token": {
+              "$ref": "#/definitions/SecretContract"
+            }
+          }
         }
       }
     },
@@ -24,5 +32,25 @@
         }
       }
     }
-  ]
+  ],
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "SecretContract": {
+      "type": "object",
+      "required": [
+        "address",
+        "contract_hash"
+      ],
+      "properties": {
+        "address": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "contract_hash": {
+          "type": "string"
+        }
+      }
+    }
+  }
 }

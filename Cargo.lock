@@ -168,7 +168,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cw-profit-sharing-smart-contract"
+name = "cw-profit-distributor"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema",
