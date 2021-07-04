@@ -1,3 +1,4 @@
+use crate::constants::RESPONSE_BLOCK_SIZE;
 use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
 use crate::state::{config, config_read, SecretContract, State};
 use cosmwasm_std::{
@@ -5,8 +6,6 @@ use cosmwasm_std::{
     StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::snip20;
-
-pub const RESPONSE_BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
