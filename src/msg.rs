@@ -46,7 +46,7 @@ pub enum ProfitDistributorQueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorReceiveMsg {
-    Deposit {},
+    DepositButtcoin {},
 }
 
 // QUERY RESPONSE STRUCTS

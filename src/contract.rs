@@ -1,16 +1,17 @@
-use crate::constants::{CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
+use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
 use crate::msg::{
     ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
-    ProfitDistributorInitMsg, ProfitDistributorQueryMsg,
+    ProfitDistributorInitMsg, ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
 };
-use crate::state::{Config, SecretContract};
+use crate::state::{Config, Pool, PoolUser, SecretContract};
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{
-    to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
-    StdError, StdResult, Storage, Uint128,
+    from_binary, to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse,
+    Querier, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
+use secret_toolkit::serialization::{Bincode2, Serde};
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
@@ -70,7 +71,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorHandleMsg::SetViewingKey { key, .. } => set_viewing_key(deps, env, key),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
-        } => receive(deps, env, from, amount, msg),
+        } => receive(deps, env, from, amount.u128(), msg),
     }
 }
 
@@ -150,32 +151,150 @@ fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn receive<S: Storage, A: Api, Q: Querier>(
+fn find_pool_user<S: Storage>(
+    storage: &mut S,
+    token_addess: HumanAddr,
+    user_address: HumanAddr,
+) -> PoolUser {
+    let pool_user_store = PrefixedStorage::new(token_addess.0.as_bytes(), storage);
+    let pool_user = pool_user_store.get(user_address.0.as_bytes());
+    if pool_user.is_none() {
+        PoolUser {
+            debt: 0,
+            deposited: 0,
+        }
+    } else {
+        Bincode2::deserialize(&pool_user.unwrap()).unwrap()
+    }
+}
+
+fn update_pool_user<S: Storage>(
+    storage: &mut S,
+    pool_user: PoolUser,
+    token_addess: HumanAddr,
+    user_address: HumanAddr,
+) -> StdResult<()> {
+    let mut pool_user_store = PrefixedStorage::new(token_addess.0.as_bytes(), storage);
+    pool_user_store.set(user_address.0.as_bytes(), &Bincode2::serialize(&pool_user)?);
+    Ok(())
+}
+
+fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     from: HumanAddr,
-    amount: Uint128,
-    _msg: Binary,
+    amount: u128,
 ) -> StdResult<HandleResponse> {
+    let config = TypedStore::<Config, S>::attach(&deps.storage).load(CONFIG_KEY)?;
+    authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
+
+    // Load buttcoin_pool
+    let mut buttcoin_pool = TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+        .load(env.message.sender.0.as_bytes())
+        .unwrap_or(Pool {
+            deposited: 0,
+            residue: 0,
+            total: 0,
+        });
+
+    // Load buttcoin_pool_user
+    let mut buttcoin_pool_user =
+        find_pool_user(&mut deps.storage, env.message.sender, from.clone());
     let mut messages = vec![];
-    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    // If Buttcoin is sent to this contract, mint the user the pool share tokens
-    if env.message.sender == config.buttcoin.address {
-        messages.push(snip20::mint_msg(
-            from,
-            amount,
-            None,
-            RESPONSE_BLOCK_SIZE,
-            config.pool_shares_token.contract_hash,
-            config.pool_shares_token.address,
-        )?)
+
+    // If the user must claim all claimables first
+    if buttcoin_pool_user.deposited > 0 {
+        for profit_token in config.profit_tokens {
+            let pool: Pool = if profit_token.address == config.buttcoin.address {
+                buttcoin_pool.clone()
+            } else {
+                TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+                    .load(profit_token.address.0.as_bytes())
+                    .unwrap_or(Pool {
+                        deposited: 0,
+                        residue: 0,
+                        total: 0,
+                    })
+            };
+
+            let mut pool_user: PoolUser = if profit_token.address == config.buttcoin.address {
+                buttcoin_pool_user.clone()
+            } else {
+                find_pool_user(
+                    &mut deps.storage,
+                    profit_token.address.clone(),
+                    from.clone(),
+                )
+            };
+
+            let new_debt = buttcoin_pool_user.deposited * pool.total * CALCULATION_SCALE
+                / buttcoin_pool.deposited
+                / CALCULATION_SCALE;
+            let pending = new_debt - buttcoin_pool_user.debt;
+            if pending > 0 {
+                messages.push(secret_toolkit::snip20::transfer_msg(
+                    from.clone(),
+                    Uint128(pending),
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    profit_token.contract_hash,
+                    profit_token.address.clone(),
+                )?);
+
+                pool_user.debt = new_debt;
+                if profit_token.address != config.buttcoin.address {
+                    update_pool_user(
+                        &mut deps.storage,
+                        pool_user,
+                        profit_token.address,
+                        from.clone(),
+                    )?;
+                }
+            }
+        }
     }
+
+    buttcoin_pool.deposited += amount;
+    buttcoin_pool.total += amount;
+    buttcoin_pool_user.deposited += amount;
+    update_pool_user(
+        &mut deps.storage,
+        buttcoin_pool_user,
+        config.buttcoin.address,
+        from.clone(),
+    )?;
+
+    // Mint share tokens
+    messages.push(snip20::mint_msg(
+        from,
+        Uint128(amount),
+        None,
+        RESPONSE_BLOCK_SIZE,
+        config.pool_shares_token.contract_hash,
+        config.pool_shares_token.address,
+    )?);
 
     Ok(HandleResponse {
         messages: messages,
         log: vec![],
         data: None,
     })
+}
+
+fn receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    from: HumanAddr,
+    amount: u128,
+    msg: Binary,
+) -> StdResult<HandleResponse> {
+    let msg: ProfitDistributorReceiveMsg = from_binary(&msg)?;
+
+    match msg {
+        ProfitDistributorReceiveMsg::DepositButtcoin {} => {
+            deposit_buttcoin(deps, env, from, amount)
+        }
+    }
 }
 
 fn balance<S: Storage, A: Api, Q: Querier>(
@@ -396,17 +515,35 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_buttcoin_callback() {
+    fn test_receive_deposit_buttcoin() {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
         let from: HumanAddr = HumanAddr::from("someuser");
 
-        // Accepted token
+        // When received token is not Buttcoin
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
             sender: from.clone(),
-            msg: to_binary(&ProfitDistributorReceiveMsg::Deposit {}).unwrap(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        );
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
+
+        // When received token is Buttcoin
+        // It add to the total buttcoin
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
         };
         let handle_response = handle(
             &mut deps,
@@ -415,20 +552,5 @@ mod tests {
         );
         let res = handle_response.unwrap();
         assert_eq!(1, res.messages.len());
-
-        // Other token
-        let msg = ProfitDistributorHandleMsg::Receive {
-            amount: amount,
-            from: from.clone(),
-            sender: from,
-            msg: to_binary(&ProfitDistributorReceiveMsg::Deposit {}).unwrap(),
-        };
-        let handle_response = handle(
-            &mut deps,
-            mock_env(mock_pool_shares_token().address.to_string(), &[]),
-            msg.clone(),
-        );
-        let res = handle_response.unwrap();
-        assert_eq!(0, res.messages.len());
     }
 }
