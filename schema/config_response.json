@@ -3,9 +3,13 @@
   "title": "ConfigResponse",
   "type": "object",
   "required": [
+    "admin",
     "buttcoin"
   ],
   "properties": {
+    "admin": {
+      "$ref": "#/definitions/HumanAddr"
+    },
     "buttcoin": {
       "$ref": "#/definitions/SecretContract"
     }

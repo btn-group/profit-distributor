@@ -3,7 +3,7 @@ use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
 use crate::state::{Config, SecretContract};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
-    StdResult, Storage, Uint128,
+    StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
@@ -16,6 +16,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
         buttcoin: msg.buttcoin.clone(),
+        admin: env.message.sender,
         contract_address: env.contract.address,
         pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
@@ -52,6 +53,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
+        HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount, msg),
@@ -115,12 +117,34 @@ fn balance<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn change_admin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    // Ensure that admin is calling this
+    if env.message.sender != config.admin {
+        return Err(StdError::Unauthorized { backtrace: None });
+    }
+
+    config.admin = address;
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: None,
+    })
+}
+
 fn public_config<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<ConfigResponse> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     Ok(ConfigResponse {
         buttcoin: config.buttcoin,
+        admin: config.admin,
     })
 }
 
@@ -153,14 +177,14 @@ mod tests {
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
 
-    pub const MOCK_USER: &str = "user";
+    pub const MOCK_ADMIN: &str = "admin";
 
     // === HELPERS ===
     fn init_helper() -> (
         StdResult<InitResponse>,
         Extern<MockStorage, MockApi, MockQuerier>,
     ) {
-        let env = mock_env(MOCK_USER, &[]);
+        let env = mock_env(MOCK_ADMIN, &[]);
         let pool_shares_token = mock_pool_shares_token();
         let mut deps = mock_dependencies(20, &[]);
         let msg = InitMsg {
@@ -188,6 +212,32 @@ mod tests {
     // === QUERY TESTS ===
 
     #[test]
+    fn test_change_admin() {
+        let (init_result, mut deps) = init_helper();
+
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::ChangeAdmin {
+            address: HumanAddr("bob".to_string()),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env(MOCK_ADMIN, &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let res = query(&deps, QueryMsg::Config {}).unwrap();
+        let value: ConfigResponse = from_binary(&res).unwrap();
+        assert_eq!(value.admin, HumanAddr("bob".to_string()));
+    }
+
+    #[test]
     fn test_public_config() {
         let (_init_result, deps) = init_helper();
 
@@ -197,7 +247,8 @@ mod tests {
         // Test that the desired fields are returned.
         assert_eq!(
             ConfigResponse {
-                buttcoin: mock_buttcoin()
+                buttcoin: mock_buttcoin(),
+                admin: HumanAddr::from(MOCK_ADMIN),
             },
             value
         );
