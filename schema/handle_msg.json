@@ -70,25 +70,6 @@
           }
         }
       }
-    },
-    {
-      "type": "object",
-      "required": [
-        "set_viewing_key"
-      ],
-      "properties": {
-        "set_viewing_key": {
-          "type": "object",
-          "required": [
-            "token"
-          ],
-          "properties": {
-            "token": {
-              "$ref": "#/definitions/SecretContract"
-            }
-          }
-        }
-      }
     }
   ],
   "definitions": {
