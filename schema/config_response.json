@@ -3,11 +3,22 @@
   "title": "ConfigResponse",
   "type": "object",
   "required": [
-    "buttcoin"
+    "admin",
+    "buttcoin",
+    "profit_tokens"
   ],
   "properties": {
+    "admin": {
+      "$ref": "#/definitions/HumanAddr"
+    },
     "buttcoin": {
       "$ref": "#/definitions/SecretContract"
+    },
+    "profit_tokens": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SecretContract"
+      }
     }
   },
   "definitions": {
