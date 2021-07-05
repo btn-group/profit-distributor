@@ -15,7 +15,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
-        accepted_token: msg.accepted_token.clone(),
+        buttcoin: msg.buttcoin.clone(),
         contract_address: env.contract.address,
         pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
@@ -28,15 +28,15 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             env.contract_code_hash.clone(),
             None,
             1,
-            msg.accepted_token.contract_hash.clone(),
-            msg.accepted_token.address.clone(),
+            msg.buttcoin.contract_hash.clone(),
+            msg.buttcoin.address.clone(),
         )?,
         snip20::set_viewing_key_msg(
             msg.viewing_key,
             None,
             RESPONSE_BLOCK_SIZE,
-            msg.accepted_token.contract_hash,
-            msg.accepted_token.address,
+            msg.buttcoin.contract_hash,
+            msg.buttcoin.address,
         )?,
     ];
 
@@ -79,7 +79,7 @@ fn receive<S: Storage, A: Api, Q: Querier>(
     let mut messages = vec![];
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     // If Buttcoin is sent to this contract, mint the user the pool share tokens
-    if env.message.sender == config.accepted_token.address {
+    if env.message.sender == config.buttcoin.address {
         messages.push(snip20::mint_msg(
             from,
             amount,
@@ -120,7 +120,7 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<ConfigResponse> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     Ok(ConfigResponse {
-        accepted_token: config.accepted_token,
+        buttcoin: config.buttcoin,
     })
 }
 
@@ -154,9 +154,6 @@ mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
 
     pub const MOCK_USER: &str = "user";
-    pub const MOCK_ACCEPTED_TOKEN_ADDRESS: &str = "buttcoincontractaddress";
-    pub const MOCK_ACCEPTED_TOKEN_CONTRACT_HASH: &str = "buttcoincontracthash";
-    pub const MOCK_POOL_TOKEN_ADDRESS: &str = "buttcoinprofitsharecontractaddress";
 
     // === HELPERS ===
     fn init_helper() -> (
@@ -164,22 +161,31 @@ mod tests {
         Extern<MockStorage, MockApi, MockQuerier>,
     ) {
         let env = mock_env(MOCK_USER, &[]);
-        let accepted_token = SecretContract {
-            address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
-            contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
-        };
-        let pool_shares_token = SecretContract {
-            address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
-            contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
-        };
+        let pool_shares_token = mock_pool_shares_token();
         let mut deps = mock_dependencies(20, &[]);
         let msg = InitMsg {
-            accepted_token: accepted_token.clone(),
+            buttcoin: mock_buttcoin(),
             pool_shares_token: pool_shares_token.clone(),
             viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
         };
         (init(&mut deps, env.clone(), msg), deps)
     }
+
+    fn mock_buttcoin() -> SecretContract {
+        SecretContract {
+            address: HumanAddr::from("buttcoincontractaddress"),
+            contract_hash: "buttcoincontracthash".to_string(),
+        }
+    }
+
+    fn mock_pool_shares_token() -> SecretContract {
+        SecretContract {
+            address: HumanAddr::from("pool-shares-address"),
+            contract_hash: "pool-shares-contract-hash".to_string(),
+        }
+    }
+
+    // === QUERY TESTS ===
 
     #[test]
     fn test_public_config() {
@@ -189,20 +195,18 @@ mod tests {
         let value: ConfigResponse = from_binary(&res).unwrap();
         // Test response does not include viewing key.
         // Test that the desired fields are returned.
-        let accepted_token = SecretContract {
-            address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
-            contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
-        };
         assert_eq!(
             ConfigResponse {
-                accepted_token: accepted_token,
+                buttcoin: mock_buttcoin()
             },
             value
         );
     }
 
+    // === HANDLE TESTS ===
+
     #[test]
-    fn test_receive_accepted_token_callback() {
+    fn test_receive_buttcoin_callback() {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
         let from: HumanAddr = HumanAddr::from("someuser");
@@ -216,7 +220,7 @@ mod tests {
         };
         let handle_response = handle(
             &mut deps,
-            mock_env(MOCK_ACCEPTED_TOKEN_ADDRESS, &[]),
+            mock_env(mock_buttcoin().address.to_string(), &[]),
             msg.clone(),
         );
         let res = handle_response.unwrap();
@@ -231,7 +235,7 @@ mod tests {
         };
         let handle_response = handle(
             &mut deps,
-            mock_env(MOCK_POOL_TOKEN_ADDRESS, &[]),
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
             msg.clone(),
         );
         let res = handle_response.unwrap();
@@ -248,12 +252,9 @@ mod tests {
             init_result.err().unwrap()
         );
 
-        let token = SecretContract {
-            address: HumanAddr::from(MOCK_ACCEPTED_TOKEN_ADDRESS),
-            contract_hash: MOCK_ACCEPTED_TOKEN_CONTRACT_HASH.to_string(),
+        let handle_msg = HandleMsg::SetViewingKey {
+            token: mock_buttcoin(),
         };
-
-        let handle_msg = HandleMsg::SetViewingKey { token: token };
         let handle_response = handle(&mut deps, mock_env("anyone", &[]), handle_msg);
         let res = handle_response.unwrap();
         assert_eq!(1, res.messages.len());

@@ -3,12 +3,12 @@
   "title": "InitMsg",
   "type": "object",
   "required": [
-    "accepted_token",
+    "buttcoin",
     "pool_shares_token",
     "viewing_key"
   ],
   "properties": {
-    "accepted_token": {
+    "buttcoin": {
       "$ref": "#/definitions/SecretContract"
     },
     "pool_shares_token": {

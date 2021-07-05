@@ -3,10 +3,10 @@
   "title": "ConfigResponse",
   "type": "object",
   "required": [
-    "accepted_token"
+    "buttcoin"
   ],
   "properties": {
-    "accepted_token": {
+    "buttcoin": {
       "$ref": "#/definitions/SecretContract"
     }
   },
