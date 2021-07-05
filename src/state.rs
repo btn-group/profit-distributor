@@ -10,7 +10,7 @@ pub struct SecretContract {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
-    pub accepted_token: SecretContract,
+    pub buttcoin: SecretContract,
     pub contract_address: HumanAddr,
     pub pool_shares_token: SecretContract,
     pub viewing_key: String,
