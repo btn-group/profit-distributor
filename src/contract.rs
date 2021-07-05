@@ -1,5 +1,8 @@
 use crate::constants::{CONFIG_KEY, RESPONSE_BLOCK_SIZE};
-use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
+use crate::msg::{
+    ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
+    ProfitDistributorInitMsg, ProfitDistributorQueryMsg,
+};
 use crate::state::{Config, SecretContract};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
@@ -11,7 +14,7 @@ use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    msg: InitMsg,
+    msg: ProfitDistributorInitMsg,
 ) -> StdResult<InitResponse> {
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
@@ -51,12 +54,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    msg: HandleMsg,
+    msg: ProfitDistributorHandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
-        HandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
-        HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
-        HandleMsg::Receive {
+        ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
+        ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount, msg),
     }
@@ -64,11 +67,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
 pub fn query<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    msg: QueryMsg,
+    msg: ProfitDistributorQueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
-        QueryMsg::Config {} => to_binary(&public_config(deps)?),
+        ProfitDistributorQueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
+        ProfitDistributorQueryMsg::Config {} => to_binary(&public_config(deps)?),
     }
 }
 
@@ -149,7 +152,7 @@ fn receive<S: Storage, A: Api, Q: Querier>(
 fn balance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token: SecretContract,
-) -> StdResult<BalanceResponse> {
+) -> StdResult<ProfitDistributorBalanceResponse> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     let balance = snip20::balance_query(
         &deps.querier,
@@ -159,7 +162,7 @@ fn balance<S: Storage, A: Api, Q: Querier>(
         token.contract_hash,
         token.address,
     )?;
-    Ok(BalanceResponse {
+    Ok(ProfitDistributorBalanceResponse {
         amount: balance.amount,
     })
 }
@@ -184,9 +187,9 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 
 fn public_config<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-) -> StdResult<ConfigResponse> {
+) -> StdResult<ProfitDistributorConfigResponse> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    Ok(ConfigResponse {
+    Ok(ProfitDistributorConfigResponse {
         admin: config.admin,
         buttcoin: config.buttcoin,
         profit_tokens: config.profit_tokens,
@@ -196,7 +199,7 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msg::ReceiveMsg;
+    use crate::msg::ProfitDistributorReceiveMsg;
     use crate::state::SecretContract;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
@@ -211,7 +214,7 @@ mod tests {
         let env = mock_env(MOCK_ADMIN, &[]);
         let pool_shares_token = mock_pool_shares_token();
         let mut deps = mock_dependencies(20, &[]);
-        let msg = InitMsg {
+        let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
             pool_shares_token: pool_shares_token.clone(),
             viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
@@ -252,7 +255,7 @@ mod tests {
             init_result.err().unwrap()
         );
 
-        let handle_msg = HandleMsg::ChangeAdmin {
+        let handle_msg = ProfitDistributorHandleMsg::ChangeAdmin {
             address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env(MOCK_ADMIN, &[]), handle_msg);
@@ -262,8 +265,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let res = query(&deps, QueryMsg::Config {}).unwrap();
-        let value: ConfigResponse = from_binary(&res).unwrap();
+        let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
+        let value: ProfitDistributorConfigResponse = from_binary(&res).unwrap();
         assert_eq!(value.admin, HumanAddr("bob".to_string()));
     }
 
@@ -271,12 +274,12 @@ mod tests {
     fn test_public_config() {
         let (_init_result, deps) = init_helper();
 
-        let res = query(&deps, QueryMsg::Config {}).unwrap();
-        let value: ConfigResponse = from_binary(&res).unwrap();
+        let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
+        let value: ProfitDistributorConfigResponse = from_binary(&res).unwrap();
         // Test response does not include viewing key.
         // Test that the desired fields are returned.
         assert_eq!(
-            ConfigResponse {
+            ProfitDistributorConfigResponse {
                 admin: HumanAddr::from(MOCK_ADMIN),
                 buttcoin: mock_buttcoin(),
                 profit_tokens: vec![],
@@ -294,7 +297,7 @@ mod tests {
 
         // When called by a non-admin
         // It returns an unauthorized error
-        let msg = HandleMsg::AddProfitToken {
+        let msg = ProfitDistributorHandleMsg::AddProfitToken {
             token: mock_profit_token(),
         };
         let env = mock_env(mock_profit_token().address.to_string(), &[]);
@@ -352,11 +355,11 @@ mod tests {
         let from: HumanAddr = HumanAddr::from("someuser");
 
         // Accepted token
-        let msg = HandleMsg::Receive {
+        let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
             sender: from.clone(),
-            msg: to_binary(&ReceiveMsg::Deposit {}).unwrap(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Deposit {}).unwrap(),
         };
         let handle_response = handle(
             &mut deps,
@@ -367,11 +370,11 @@ mod tests {
         assert_eq!(1, res.messages.len());
 
         // Other token
-        let msg = HandleMsg::Receive {
+        let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
             sender: from,
-            msg: to_binary(&ReceiveMsg::Deposit {}).unwrap(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Deposit {}).unwrap(),
         };
         let handle_response = handle(
             &mut deps,
