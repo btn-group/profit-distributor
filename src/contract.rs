@@ -81,6 +81,10 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
     let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
     authorize(config.admin.clone(), env.message.sender)?;
 
+    if config.profit_tokens.contains(&token) {
+        return Err(StdError::generic_err(format!("Record not unique")));
+    }
+
     config.profit_tokens.push(token.clone());
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
     let messages = vec![
@@ -331,7 +335,7 @@ mod tests {
             HandleResponse {
                 messages: vec![
                     snip20::register_receive_msg(
-                        env.contract_code_hash,
+                        env.contract_code_hash.clone(),
                         None,
                         1,
                         mock_profit_token().contract_hash,
@@ -353,7 +357,14 @@ mod tests {
         );
         // It stores the profit token in config as a distributable token
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-        assert_eq!(config.profit_tokens, vec![mock_profit_token()],)
+        assert_eq!(config.profit_tokens, vec![mock_profit_token()],);
+
+        // When adding a profit token that has already been added
+        let handle_response = handle(&mut deps, env.clone(), msg.clone());
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::generic_err(format!("Record not unique"))
+        );
     }
 
     #[test]
