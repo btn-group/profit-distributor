@@ -1,26 +1,27 @@
-use crate::constants::RESPONSE_BLOCK_SIZE;
+use crate::constants::{CONFIG_KEY, RESPONSE_BLOCK_SIZE};
 use crate::msg::{BalanceResponse, ConfigResponse, HandleMsg, InitMsg, QueryMsg};
-use crate::state::{config, config_read, SecretContract, State};
+use crate::state::{Config, SecretContract};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
     StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::snip20;
+use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     msg: InitMsg,
 ) -> StdResult<InitResponse> {
-    let state = State {
+    let mut config_store = TypedStoreMut::attach(&mut deps.storage);
+    let config = Config {
         accepted_token: msg.accepted_token.clone(),
         admin: env.message.sender,
         contract_address: env.contract.address,
         pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
     };
-
-    config(&mut deps.storage).save(&state)?;
+    config_store.store(CONFIG_KEY, &config)?;
 
     // https://github.com/enigmampc/secret-toolkit/tree/master/packages/snip20
     let messages = vec![
@@ -78,16 +79,16 @@ fn receive<S: Storage, A: Api, Q: Querier>(
     _msg: Binary,
 ) -> StdResult<HandleResponse> {
     let mut messages = vec![];
-    let state = config_read(&deps.storage).load()?;
+    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     // If Buttcoin is sent to this contract, mint the user the pool share tokens
-    if env.message.sender == state.accepted_token.address {
+    if env.message.sender == config.accepted_token.address {
         messages.push(snip20::mint_msg(
             from,
             amount,
             None,
             RESPONSE_BLOCK_SIZE,
-            state.pool_shares_token.contract_hash,
-            state.pool_shares_token.address,
+            config.pool_shares_token.contract_hash,
+            config.pool_shares_token.address,
         )?)
     }
 
@@ -102,11 +103,11 @@ fn balance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token: SecretContract,
 ) -> StdResult<BalanceResponse> {
-    let state = config_read(&deps.storage).load()?;
+    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     let balance = snip20::balance_query(
         &deps.querier,
-        state.contract_address,
-        state.viewing_key,
+        config.contract_address,
+        config.viewing_key,
         RESPONSE_BLOCK_SIZE,
         token.contract_hash,
         token.address,
@@ -121,14 +122,14 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     env: Env,
     address: HumanAddr,
 ) -> StdResult<HandleResponse> {
-    let mut state = config_read(&deps.storage).load()?;
+    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
     // Ensure that admin is calling this
-    if env.message.sender != state.admin {
+    if env.message.sender != config.admin {
         return Err(StdError::Unauthorized { backtrace: None });
     }
 
-    state.admin = address;
-    config(&mut deps.storage).save(&state)?;
+    config.admin = address;
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
 
     Ok(HandleResponse {
         messages: vec![],
@@ -140,10 +141,10 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 fn public_config<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<ConfigResponse> {
-    let state = config_read(&deps.storage).load()?;
+    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     Ok(ConfigResponse {
-        accepted_token: state.accepted_token,
-        admin: state.admin,
+        accepted_token: config.accepted_token,
+        admin: config.admin,
     })
 }
 
@@ -151,10 +152,10 @@ fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token: SecretContract,
 ) -> StdResult<HandleResponse> {
-    let state = config_read(&deps.storage).load()?;
+    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
 
     let messages = vec![snip20::set_viewing_key_msg(
-        state.viewing_key,
+        config.viewing_key,
         None,
         RESPONSE_BLOCK_SIZE,
         token.contract_hash,
