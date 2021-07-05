@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct ProfitDistributorInitMsg {
     pub buttcoin: SecretContract,
     pub pool_shares_token: SecretContract,
+    pub prng_seed: Binary,
     pub viewing_key: String,
 }
 
@@ -19,11 +20,19 @@ pub enum ProfitDistributorHandleMsg {
     ChangeAdmin {
         address: HumanAddr,
     },
+    CreateViewingKey {
+        entropy: String,
+        padding: Option<String>,
+    },
     Receive {
         sender: HumanAddr,
         from: HumanAddr,
         amount: Uint128,
         msg: Binary,
+    },
+    SetViewingKey {
+        key: String,
+        padding: Option<String>,
     },
 }
 
