@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct InitMsg {
+pub struct ProfitDistributorInitMsg {
     pub buttcoin: SecretContract,
     pub pool_shares_token: SecretContract,
     pub viewing_key: String,
@@ -12,7 +12,7 @@ pub struct InitMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleMsg {
+pub enum ProfitDistributorHandleMsg {
     AddProfitToken {
         token: SecretContract,
     },
@@ -29,25 +29,25 @@ pub enum HandleMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
+pub enum ProfitDistributorQueryMsg {
     Balance { token: SecretContract },
     Config {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ReceiveMsg {
+pub enum ProfitDistributorReceiveMsg {
     Deposit {},
 }
 
 // QUERY RESPONSE STRUCTS
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BalanceResponse {
+pub struct ProfitDistributorBalanceResponse {
     pub amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ConfigResponse {
+pub struct ProfitDistributorConfigResponse {
     pub admin: HumanAddr,
     pub buttcoin: SecretContract,
     pub profit_tokens: Vec<SecretContract>,
