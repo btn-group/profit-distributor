@@ -59,7 +59,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount, msg),
-        HandleMsg::SetViewingKey { token } => set_viewing_key(deps, token),
     }
 }
 
@@ -191,27 +190,6 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
         admin: config.admin,
         buttcoin: config.buttcoin,
         profit_tokens: config.profit_tokens,
-    })
-}
-
-fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    token: SecretContract,
-) -> StdResult<HandleResponse> {
-    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-
-    let messages = vec![snip20::set_viewing_key_msg(
-        config.viewing_key,
-        None,
-        RESPONSE_BLOCK_SIZE,
-        token.contract_hash,
-        token.address,
-    )?];
-
-    Ok(HandleResponse {
-        messages: messages,
-        log: vec![],
-        data: None,
     })
 }
 
@@ -402,23 +380,5 @@ mod tests {
         );
         let res = handle_response.unwrap();
         assert_eq!(0, res.messages.len());
-    }
-
-    #[test]
-    fn test_set_viewing_key() {
-        let (init_result, mut deps) = init_helper();
-
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = HandleMsg::SetViewingKey {
-            token: mock_buttcoin(),
-        };
-        let handle_response = handle(&mut deps, mock_env("anyone", &[]), handle_msg);
-        let res = handle_response.unwrap();
-        assert_eq!(1, res.messages.len());
     }
 }
