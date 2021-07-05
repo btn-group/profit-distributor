@@ -3,15 +3,11 @@
   "title": "ConfigResponse",
   "type": "object",
   "required": [
-    "accepted_token",
-    "admin"
+    "accepted_token"
   ],
   "properties": {
     "accepted_token": {
       "$ref": "#/definitions/SecretContract"
-    },
-    "admin": {
-      "$ref": "#/definitions/HumanAddr"
     }
   },
   "definitions": {
