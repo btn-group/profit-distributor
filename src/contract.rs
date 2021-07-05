@@ -1,13 +1,16 @@
-use crate::constants::{CONFIG_KEY, RESPONSE_BLOCK_SIZE};
+use crate::constants::{CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
 use crate::msg::{
     ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
     ProfitDistributorInitMsg, ProfitDistributorQueryMsg,
 };
 use crate::state::{Config, SecretContract};
+use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
     StdError, StdResult, Storage, Uint128,
 };
+use cosmwasm_storage::PrefixedStorage;
+use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
@@ -16,11 +19,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: ProfitDistributorInitMsg,
 ) -> StdResult<InitResponse> {
+    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
         admin: env.message.sender,
         buttcoin: msg.buttcoin.clone(),
         contract_address: env.contract.address,
+        prng_seed: prng_seed_hashed.to_vec(),
         profit_tokens: vec![],
         pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
@@ -59,6 +64,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match msg {
         ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        ProfitDistributorHandleMsg::CreateViewingKey { entropy, .. } => {
+            create_viewing_key(deps, env, entropy)
+        }
+        ProfitDistributorHandleMsg::SetViewingKey { key, .. } => set_viewing_key(deps, env, key),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount, msg),
@@ -119,6 +128,26 @@ fn authorize(expected: HumanAddr, received: HumanAddr) -> StdResult<()> {
     }
 
     Ok(())
+}
+
+fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    entropy: String,
+) -> StdResult<HandleResponse> {
+    let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    let prng_seed = config.prng_seed;
+
+    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
+
+    let mut vk_store = PrefixedStorage::new(VIEWING_KEY_KEY, &mut deps.storage);
+    vk_store.set(env.message.sender.0.as_bytes(), &key.to_hashed());
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: None,
+    })
 }
 
 fn receive<S: Storage, A: Api, Q: Querier>(
@@ -196,6 +225,23 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    key: String,
+) -> StdResult<HandleResponse> {
+    let vk = ViewingKey(key);
+
+    let mut vk_store = PrefixedStorage::new(VIEWING_KEY_KEY, &mut deps.storage);
+    vk_store.set(env.message.sender.0.as_bytes(), &vk.to_hashed());
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +263,7 @@ mod tests {
         let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
             pool_shares_token: pool_shares_token.clone(),
+            prng_seed: Binary::from("some-prng-seed".as_bytes()),
             viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
         };
         (init(&mut deps, env.clone(), msg), deps)
