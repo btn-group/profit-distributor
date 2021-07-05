@@ -4,7 +4,8 @@
   "type": "object",
   "required": [
     "admin",
-    "buttcoin"
+    "buttcoin",
+    "profit_tokens"
   ],
   "properties": {
     "admin": {
@@ -12,6 +13,12 @@
     },
     "buttcoin": {
       "$ref": "#/definitions/SecretContract"
+    },
+    "profit_tokens": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SecretContract"
+      }
     }
   },
   "definitions": {

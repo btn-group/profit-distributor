@@ -13,9 +13,11 @@ pub struct InitMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
+    AddProfitToken {
+        token: SecretContract,
+    },
     ChangeAdmin {
         address: HumanAddr,
-        padding: Option<String>,
     },
     Receive {
         sender: HumanAddr,
@@ -49,6 +51,7 @@ pub struct BalanceResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
-    pub buttcoin: SecretContract,
     pub admin: HumanAddr,
+    pub buttcoin: SecretContract,
+    pub profit_tokens: Vec<SecretContract>,
 }

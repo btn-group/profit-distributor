@@ -5,6 +5,25 @@
     {
       "type": "object",
       "required": [
+        "add_profit_token"
+      ],
+      "properties": {
+        "add_profit_token": {
+          "type": "object",
+          "required": [
+            "token"
+          ],
+          "properties": {
+            "token": {
+              "$ref": "#/definitions/SecretContract"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "change_admin"
       ],
       "properties": {
@@ -16,12 +35,6 @@
           "properties": {
             "address": {
               "$ref": "#/definitions/HumanAddr"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
             }
           }
         }

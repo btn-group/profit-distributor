@@ -15,9 +15,10 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
-        buttcoin: msg.buttcoin.clone(),
         admin: env.message.sender,
+        buttcoin: msg.buttcoin.clone(),
         contract_address: env.contract.address,
+        profit_tokens: vec![],
         pool_shares_token: msg.pool_shares_token.clone(),
         viewing_key: msg.viewing_key.clone(),
     };
@@ -53,6 +54,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
+        HandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::Receive {
             from, amount, msg, ..
@@ -69,6 +71,48 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         QueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
         QueryMsg::Config {} => to_binary(&public_config(deps)?),
     }
+}
+
+fn add_profit_token<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    token: SecretContract,
+) -> StdResult<HandleResponse> {
+    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    authorize(config.admin.clone(), env.message.sender)?;
+
+    config.profit_tokens.push(token.clone());
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+    let messages = vec![
+        snip20::register_receive_msg(
+            env.contract_code_hash.clone(),
+            None,
+            1,
+            token.contract_hash.clone(),
+            token.address.clone(),
+        )?,
+        snip20::set_viewing_key_msg(
+            config.viewing_key,
+            None,
+            RESPONSE_BLOCK_SIZE,
+            token.contract_hash,
+            token.address,
+        )?,
+    ];
+
+    Ok(HandleResponse {
+        messages: messages,
+        log: vec![],
+        data: None,
+    })
+}
+
+fn authorize(expected: HumanAddr, received: HumanAddr) -> StdResult<()> {
+    if expected != received {
+        return Err(StdError::Unauthorized { backtrace: None });
+    }
+
+    Ok(())
 }
 
 fn receive<S: Storage, A: Api, Q: Querier>(
@@ -123,10 +167,7 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     address: HumanAddr,
 ) -> StdResult<HandleResponse> {
     let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
-    // Ensure that admin is calling this
-    if env.message.sender != config.admin {
-        return Err(StdError::Unauthorized { backtrace: None });
-    }
+    authorize(config.admin, env.message.sender)?;
 
     config.admin = address;
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
@@ -143,8 +184,9 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<ConfigResponse> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     Ok(ConfigResponse {
-        buttcoin: config.buttcoin,
         admin: config.admin,
+        buttcoin: config.buttcoin,
+        profit_tokens: config.profit_tokens,
     })
 }
 
@@ -209,6 +251,13 @@ mod tests {
         }
     }
 
+    fn mock_profit_token() -> SecretContract {
+        SecretContract {
+            address: HumanAddr::from("profit-token-address"),
+            contract_hash: "profit-token-contract-hash".to_string(),
+        }
+    }
+
     // === QUERY TESTS ===
 
     #[test]
@@ -223,7 +272,6 @@ mod tests {
 
         let handle_msg = HandleMsg::ChangeAdmin {
             address: HumanAddr("bob".to_string()),
-            padding: None,
         };
         let handle_result = handle(&mut deps, mock_env(MOCK_ADMIN, &[]), handle_msg);
         assert!(
@@ -247,14 +295,66 @@ mod tests {
         // Test that the desired fields are returned.
         assert_eq!(
             ConfigResponse {
-                buttcoin: mock_buttcoin(),
                 admin: HumanAddr::from(MOCK_ADMIN),
+                buttcoin: mock_buttcoin(),
+                profit_tokens: vec![],
             },
             value
         );
     }
 
     // === HANDLE TESTS ===
+
+    #[test]
+    fn test_handle_add_profit_token() {
+        let (_init_result, mut deps) = init_helper();
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+
+        // When called by a non-admin
+        // It returns an unauthorized error
+        let msg = HandleMsg::AddProfitToken {
+            token: mock_profit_token(),
+        };
+        let env = mock_env(mock_profit_token().address.to_string(), &[]);
+        let handle_response = handle(&mut deps, env, msg.clone());
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
+
+        // When called by an admin
+        // It registers a receive message for that token for this contract as well as setting a viewing key
+        let env = mock_env(MOCK_ADMIN, &[]);
+        let handle_response = handle(&mut deps, env.clone(), msg.clone());
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![
+                    snip20::register_receive_msg(
+                        env.contract_code_hash,
+                        None,
+                        1,
+                        mock_profit_token().contract_hash,
+                        mock_profit_token().address,
+                    )
+                    .unwrap(),
+                    snip20::set_viewing_key_msg(
+                        config.viewing_key.clone(),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_profit_token().contract_hash,
+                        mock_profit_token().address,
+                    )
+                    .unwrap(),
+                ],
+                log: vec![],
+                data: None,
+            },
+        );
+        // It stores the profit token in config as a distributable token
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.profit_tokens, vec![mock_profit_token()],)
+    }
 
     #[test]
     fn test_receive_buttcoin_callback() {
