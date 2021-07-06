@@ -3,15 +3,15 @@ use crate::msg::{
     ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
     ProfitDistributorInitMsg, ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
 };
-use crate::state::{Config, Pool, PoolUser, SecretContract};
+use crate::state::{Config, Pool, PoolUser, PoolUserStorage, SecretContract};
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse,
-    Querier, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+    Querier, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
-use secret_toolkit::serialization::{Bincode2, Serde};
+
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
@@ -153,29 +153,24 @@ fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
 
 fn find_pool_user<S: Storage>(
     storage: &mut S,
-    token_addess: HumanAddr,
+    token_address: HumanAddr,
     user_address: HumanAddr,
 ) -> PoolUser {
-    let pool_user_store = PrefixedStorage::new(token_addess.0.as_bytes(), storage);
-    let pool_user = pool_user_store.get(user_address.0.as_bytes());
-    if pool_user.is_none() {
-        PoolUser {
-            debt: 0,
-            deposited: 0,
-        }
-    } else {
-        Bincode2::deserialize(&pool_user.unwrap()).unwrap()
-    }
+    let mut pool_user_storage = PoolUserStorage::from_storage(storage, token_address);
+    pool_user_storage.get(user_address).unwrap_or(PoolUser {
+        debt: 0,
+        deposited: 0,
+    })
 }
 
 fn update_pool_user<S: Storage>(
     storage: &mut S,
     pool_user: PoolUser,
-    token_addess: HumanAddr,
+    token_address: HumanAddr,
     user_address: HumanAddr,
 ) -> StdResult<()> {
-    let mut pool_user_store = PrefixedStorage::new(token_addess.0.as_bytes(), storage);
-    pool_user_store.set(user_address.0.as_bytes(), &Bincode2::serialize(&pool_user)?);
+    let mut pool_user_storage = PoolUserStorage::from_storage(storage, token_address);
+    pool_user_storage.set(user_address, pool_user);
     Ok(())
 }
 
@@ -199,7 +194,7 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
 
     // Load buttcoin_pool_user
     let mut buttcoin_pool_user =
-        find_pool_user(&mut deps.storage, env.message.sender, from.clone());
+        find_pool_user(&mut deps.storage, env.message.sender.clone(), from.clone());
     let mut messages = vec![];
 
     // If the user must claim all claimables first
@@ -254,8 +249,13 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
         }
     }
 
+    // Update buttcoin_pool
     buttcoin_pool.deposited += amount;
     buttcoin_pool.total += amount;
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+        .store(env.message.sender.0.as_bytes(), &buttcoin_pool)?;
+
+    // Update buttcoin pool_user
     buttcoin_pool_user.deposited += amount;
     update_pool_user(
         &mut deps.storage,
