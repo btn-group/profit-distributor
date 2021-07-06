@@ -97,27 +97,37 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err(format!("Record not unique")));
     }
 
+    // Store token into profit tokens vector
     config.profit_tokens.push(token.clone());
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
-    let messages = vec![
-        snip20::register_receive_msg(
-            env.contract_code_hash.clone(),
-            None,
-            1,
-            token.contract_hash.clone(),
-            token.address.clone(),
-        )?,
-        snip20::set_viewing_key_msg(
-            config.viewing_key,
-            None,
-            RESPONSE_BLOCK_SIZE,
-            token.contract_hash,
-            token.address,
-        )?,
-    ];
+
+    // Store pool into database
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
+        token.address.0.as_bytes(),
+        &Pool {
+            deposited: 0,
+            residue: 0,
+            total: 0,
+        },
+    )?;
 
     Ok(HandleResponse {
-        messages: messages,
+        messages: vec![
+            snip20::register_receive_msg(
+                env.contract_code_hash.clone(),
+                None,
+                1,
+                token.contract_hash.clone(),
+                token.address.clone(),
+            )?,
+            snip20::set_viewing_key_msg(
+                config.viewing_key,
+                None,
+                RESPONSE_BLOCK_SIZE,
+                token.contract_hash,
+                token.address,
+            )?,
+        ],
         log: vec![],
         data: None,
     })
@@ -474,9 +484,10 @@ mod tests {
         );
 
         // When called by an admin
-        // It registers a receive message for that token for this contract as well as setting a viewing key
         let env = mock_env(MOCK_ADMIN, &[]);
         let handle_response = handle(&mut deps, env.clone(), msg.clone());
+
+        // It registers a receive message for that token for this contract as well as setting a viewing key
         assert_eq!(
             handle_response.unwrap(),
             HandleResponse {
@@ -502,9 +513,23 @@ mod tests {
                 data: None,
             },
         );
+
         // It stores the profit token in config as a distributable token
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
         assert_eq!(config.profit_tokens, vec![mock_profit_token()],);
+
+        // It stores a Pool struct for the token
+        let mock_profit_token_pool: Pool = TypedStore::attach(&deps.storage)
+            .load(mock_profit_token().address.0.as_bytes())
+            .unwrap();
+        assert_eq!(
+            mock_profit_token_pool,
+            Pool {
+                deposited: 0,
+                residue: 0,
+                total: 0
+            }
+        );
 
         // When adding a profit token that has already been added
         let handle_response = handle(&mut deps, env.clone(), msg.clone());
