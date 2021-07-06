@@ -85,6 +85,30 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     }
 }
 
+fn add_profit<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    amount: u128,
+) -> StdResult<HandleResponse> {
+    // Test that this is only called by an allowed token
+    let token_address_as_bytes = env.message.sender.0.as_bytes();
+    let pool_option: Option<Pool> =
+        TypedStoreMut::attach(&mut deps.storage).load(token_address_as_bytes)?;
+    if pool_option.is_none() {
+        return Err(StdError::Unauthorized { backtrace: None });
+    }
+
+    let mut pool: Pool = pool_option.unwrap();
+    pool.total += amount;
+    TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: None,
+    })
+}
+
 fn add_profit_token<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -301,6 +325,7 @@ fn receive<S: Storage, A: Api, Q: Querier>(
     let msg: ProfitDistributorReceiveMsg = from_binary(&msg)?;
 
     match msg {
+        ProfitDistributorReceiveMsg::AddProfit {} => add_profit(deps, env, amount),
         ProfitDistributorReceiveMsg::DepositButtcoin {} => {
             deposit_buttcoin(deps, env, from, amount)
         }
