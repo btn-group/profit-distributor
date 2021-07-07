@@ -3,11 +3,11 @@ use crate::msg::{
     ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
     ProfitDistributorInitMsg, ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
 };
-use crate::state::{Config, Pool, PoolUser, PoolUserStorage, SecretContract};
+use crate::state::{Config, Pool, PoolUser, PoolUserStorage, SecretContract, User};
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{
-    from_binary, to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse,
-    Querier, StdError, StdResult, Storage, Uint128,
+    from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
+    InitResponse, Querier, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
@@ -29,6 +29,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         prng_seed: prng_seed_hashed.to_vec(),
         profit_tokens: vec![],
         pool_shares_token: msg.pool_shares_token.clone(),
+        shares: 0,
         viewing_key: msg.viewing_key.clone(),
     };
     config_store.store(CONFIG_KEY, &config)?;
@@ -98,8 +99,9 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::Unauthorized { backtrace: None });
     }
 
+    // Add to total_added
     let mut pool: Pool = pool_option.unwrap();
-    pool.total += amount;
+    pool.total_added += amount;
     TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
 
     Ok(HandleResponse {
@@ -126,14 +128,8 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
 
     // Store pool into database
-    TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
-        token.address.0.as_bytes(),
-        &Pool {
-            deposited: 0,
-            residue: 0,
-            total: 0,
-        },
-    )?;
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+        .store(token.address.0.as_bytes(), &Pool { total_added: 0 })?;
 
     Ok(HandleResponse {
         messages: vec![
@@ -165,6 +161,24 @@ fn authorize(expected: HumanAddr, received: HumanAddr) -> StdResult<()> {
     Ok(())
 }
 
+fn balance<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    token: SecretContract,
+) -> StdResult<ProfitDistributorBalanceResponse> {
+    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
+    let balance = snip20::balance_query(
+        &deps.querier,
+        config.contract_address,
+        config.viewing_key,
+        RESPONSE_BLOCK_SIZE,
+        token.contract_hash,
+        token.address,
+    )?;
+    Ok(ProfitDistributorBalanceResponse {
+        amount: balance.amount,
+    })
+}
+
 fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -182,171 +196,6 @@ fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: None,
-    })
-}
-
-fn find_pool_user<S: Storage>(
-    storage: &mut S,
-    token_address: HumanAddr,
-    user_address: HumanAddr,
-) -> PoolUser {
-    let mut pool_user_storage = PoolUserStorage::from_storage(storage, token_address);
-    pool_user_storage.get(user_address).unwrap_or(PoolUser {
-        debt: 0,
-        deposited: 0,
-    })
-}
-
-fn update_pool_user<S: Storage>(
-    storage: &mut S,
-    pool_user: PoolUser,
-    token_address: HumanAddr,
-    user_address: HumanAddr,
-) -> StdResult<()> {
-    let mut pool_user_storage = PoolUserStorage::from_storage(storage, token_address);
-    pool_user_storage.set(user_address, pool_user);
-    Ok(())
-}
-
-fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    from: HumanAddr,
-    amount: u128,
-) -> StdResult<HandleResponse> {
-    let config = TypedStore::<Config, S>::attach(&deps.storage).load(CONFIG_KEY)?;
-    authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
-
-    // Load buttcoin_pool
-    let mut buttcoin_pool = TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-        .load(env.message.sender.0.as_bytes())
-        .unwrap_or(Pool {
-            deposited: 0,
-            residue: 0,
-            total: 0,
-        });
-
-    // Load buttcoin_pool_user
-    let mut buttcoin_pool_user =
-        find_pool_user(&mut deps.storage, env.message.sender.clone(), from.clone());
-    let mut messages = vec![];
-
-    // If the user must claim all claimables first
-    if buttcoin_pool_user.deposited > 0 {
-        for profit_token in config.profit_tokens {
-            let pool: Pool = if profit_token.address == config.buttcoin.address {
-                buttcoin_pool.clone()
-            } else {
-                TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-                    .load(profit_token.address.0.as_bytes())
-                    .unwrap_or(Pool {
-                        deposited: 0,
-                        residue: 0,
-                        total: 0,
-                    })
-            };
-
-            let mut pool_user: PoolUser = if profit_token.address == config.buttcoin.address {
-                buttcoin_pool_user.clone()
-            } else {
-                find_pool_user(
-                    &mut deps.storage,
-                    profit_token.address.clone(),
-                    from.clone(),
-                )
-            };
-
-            let new_debt = buttcoin_pool_user.deposited * pool.total * CALCULATION_SCALE
-                / buttcoin_pool.deposited
-                / CALCULATION_SCALE;
-            let pending = new_debt - buttcoin_pool_user.debt;
-            if pending > 0 {
-                messages.push(secret_toolkit::snip20::transfer_msg(
-                    from.clone(),
-                    Uint128(pending),
-                    None,
-                    RESPONSE_BLOCK_SIZE,
-                    profit_token.contract_hash,
-                    profit_token.address.clone(),
-                )?);
-
-                pool_user.debt = new_debt;
-                if profit_token.address != config.buttcoin.address {
-                    update_pool_user(
-                        &mut deps.storage,
-                        pool_user,
-                        profit_token.address,
-                        from.clone(),
-                    )?;
-                }
-            }
-        }
-    }
-
-    // Update buttcoin_pool
-    buttcoin_pool.deposited += amount;
-    buttcoin_pool.total += amount;
-    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-        .store(env.message.sender.0.as_bytes(), &buttcoin_pool)?;
-
-    // Update buttcoin pool_user
-    buttcoin_pool_user.deposited += amount;
-    update_pool_user(
-        &mut deps.storage,
-        buttcoin_pool_user,
-        config.buttcoin.address,
-        from.clone(),
-    )?;
-
-    // Mint share tokens
-    messages.push(snip20::mint_msg(
-        from,
-        Uint128(amount),
-        None,
-        RESPONSE_BLOCK_SIZE,
-        config.pool_shares_token.contract_hash,
-        config.pool_shares_token.address,
-    )?);
-
-    Ok(HandleResponse {
-        messages: messages,
-        log: vec![],
-        data: None,
-    })
-}
-
-fn receive<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    from: HumanAddr,
-    amount: u128,
-    msg: Binary,
-) -> StdResult<HandleResponse> {
-    let msg: ProfitDistributorReceiveMsg = from_binary(&msg)?;
-
-    match msg {
-        ProfitDistributorReceiveMsg::AddProfit {} => add_profit(deps, env, amount),
-        ProfitDistributorReceiveMsg::DepositButtcoin {} => {
-            deposit_buttcoin(deps, env, from, amount)
-        }
-    }
-}
-
-fn balance<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    token: SecretContract,
-) -> StdResult<ProfitDistributorBalanceResponse> {
-    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    let balance = snip20::balance_query(
-        &deps.querier,
-        config.contract_address,
-        config.viewing_key,
-        RESPONSE_BLOCK_SIZE,
-        token.contract_hash,
-        token.address,
-    )?;
-    Ok(ProfitDistributorBalanceResponse {
-        amount: balance.amount,
     })
 }
 
@@ -368,6 +217,102 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    from: HumanAddr,
+    amount: u128,
+) -> StdResult<HandleResponse> {
+    let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
+
+    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+        &mut deps.storage,
+        config.clone(),
+        from.clone(),
+    )?;
+
+    // Update buttcoin_pool
+    let mut buttcoin_pool = TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+        .load(env.message.sender.0.as_bytes())
+        .unwrap_or(Pool { total_added: 0 });
+    buttcoin_pool.total_added += amount;
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
+        .store(env.message.sender.0.as_bytes(), &buttcoin_pool)?;
+
+    // Update user shares
+    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+        .load(from.0.as_bytes())
+        .unwrap_or(User { shares: 0 });
+    user.shares += amount;
+    TypedStoreMut::<User, S>::attach(&mut deps.storage).store(from.0.as_bytes(), &user)?;
+
+    // Update config shares
+    config.shares += amount;
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+
+    // Mint share tokens
+    messages.push(snip20::mint_msg(
+        from,
+        Uint128(amount),
+        None,
+        RESPONSE_BLOCK_SIZE,
+        config.pool_shares_token.contract_hash,
+        config.pool_shares_token.address,
+    )?);
+
+    Ok(HandleResponse {
+        messages: messages,
+        log: vec![],
+        data: None,
+    })
+}
+
+fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
+    storage: &mut S,
+    config: Config,
+    user_address: HumanAddr,
+) -> StdResult<Vec<CosmosMsg>> {
+    let mut messages: Vec<CosmosMsg> = vec![];
+    let user = TypedStoreMut::<User, S>::attach(storage)
+        .load(user_address.0.as_bytes())
+        .unwrap_or(User { shares: 0 });
+    if user.shares > 0 {
+        for profit_token in config.profit_tokens {
+            let pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
+                .load(profit_token.address.0.as_bytes())
+                .unwrap();
+
+            if pool.total_added > 0 {
+                let mut pool_user: PoolUser =
+                    PoolUserStorage::from_storage(storage, profit_token.address.clone())
+                        .get(user_address.clone())
+                        .unwrap_or(PoolUser { debt: 0 });
+
+                let new_debt = user.shares * pool.total_added * CALCULATION_SCALE
+                    / config.shares
+                    / CALCULATION_SCALE;
+                let pending: u128 = new_debt - pool_user.debt;
+                if pending > 0 {
+                    messages.push(secret_toolkit::snip20::transfer_msg(
+                        user_address.clone(),
+                        Uint128(pending),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        profit_token.contract_hash,
+                        profit_token.address.clone(),
+                    )?);
+
+                    pool_user.debt = new_debt;
+                    PoolUserStorage::from_storage(storage, profit_token.address)
+                        .set(user_address.clone(), pool_user)
+                }
+            }
+        }
+    }
+    Ok(messages)
+}
+
 fn public_config<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<ProfitDistributorConfigResponse> {
@@ -377,6 +322,23 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
         buttcoin: config.buttcoin,
         profit_tokens: config.profit_tokens,
     })
+}
+
+fn receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    from: HumanAddr,
+    amount: u128,
+    msg: Binary,
+) -> StdResult<HandleResponse> {
+    let msg: ProfitDistributorReceiveMsg = from_binary(&msg)?;
+
+    match msg {
+        ProfitDistributorReceiveMsg::AddProfit {} => add_profit(deps, env, amount),
+        ProfitDistributorReceiveMsg::DepositButtcoin {} => {
+            deposit_buttcoin(deps, env, from, amount)
+        }
+    }
 }
 
 fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
@@ -547,14 +509,7 @@ mod tests {
         let mock_profit_token_pool: Pool = TypedStore::attach(&deps.storage)
             .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
-        assert_eq!(
-            mock_profit_token_pool,
-            Pool {
-                deposited: 0,
-                residue: 0,
-                total: 0
-            }
-        );
+        assert_eq!(mock_profit_token_pool, Pool { total_added: 0 });
 
         // When adding a profit token that has already been added
         let handle_response = handle(&mut deps, env.clone(), msg.clone());
@@ -588,7 +543,7 @@ mod tests {
         );
 
         // When received token is Buttcoin
-        // It add to the total buttcoin
+        // It add to the balance buttcoin
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),

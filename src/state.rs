@@ -13,26 +13,29 @@ pub struct Config {
     pub prng_seed: Vec<u8>,
     pub profit_tokens: Vec<SecretContract>,
     pub pool_shares_token: SecretContract,
+    pub shares: u128,
     pub viewing_key: String,
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub struct Pool {
-    pub deposited: u128,
-    pub residue: u128,
-    pub total: u128,
+    pub total_added: u128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PoolUser {
     pub debt: u128,
-    pub deposited: u128,
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone, JsonSchema)]
 pub struct SecretContract {
     pub address: HumanAddr,
     pub contract_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct User {
+    pub shares: u128,
 }
 
 // === PoolsUsers Storage ===
