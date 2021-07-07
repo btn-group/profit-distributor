@@ -23,13 +23,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
-        admin: env.message.sender,
+        admin: env.message.sender.clone(),
         buttcoin: msg.buttcoin.clone(),
-        contract_address: env.contract.address,
+        contract_address: env.contract.address.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
         profit_tokens: vec![],
         pool_shares_token: msg.pool_shares_token.clone(),
-        shares: 0,
+        total_shares: 0,
         viewing_key: msg.viewing_key.clone(),
     };
     config_store.store(CONFIG_KEY, &config)?;
@@ -99,10 +99,19 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::Unauthorized { backtrace: None });
     }
 
-    // Add to total_added
-    let mut pool: Pool = pool_option.unwrap();
-    pool.total_added += amount;
-    TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
+    // If there's no new amount
+    if amount > 0 {
+        let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+        let mut pool: Pool = pool_option.unwrap();
+        if config.total_shares == 0 {
+            pool.residue += amount;
+        } else {
+            pool.per_share_scaled +=
+                (amount + pool.residue) * CALCULATION_SCALE / config.total_shares;
+            pool.residue = 0;
+        };
+        TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
+    }
 
     Ok(HandleResponse {
         messages: vec![],
@@ -128,8 +137,13 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
 
     // Store pool into database
-    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-        .store(token.address.0.as_bytes(), &Pool { total_added: 0 })?;
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
+        token.address.0.as_bytes(),
+        &Pool {
+            per_share_scaled: 0,
+            residue: 0,
+        },
+    )?;
 
     Ok(HandleResponse {
         messages: vec![
@@ -226,29 +240,25 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
     authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
 
-    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
-        &mut deps.storage,
-        config.clone(),
-        from.clone(),
-    )?;
-
-    // Update buttcoin_pool
-    let mut buttcoin_pool = TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-        .load(env.message.sender.0.as_bytes())
-        .unwrap_or(Pool { total_added: 0 });
-    buttcoin_pool.total_added += amount;
-    TypedStoreMut::<Pool, S>::attach(&mut deps.storage)
-        .store(env.message.sender.0.as_bytes(), &buttcoin_pool)?;
-
-    // Update user shares
     let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
         .load(from.0.as_bytes())
         .unwrap_or(User { shares: 0 });
-    user.shares += amount;
+    let shares_after_transaction: u128 = user.shares + amount;
+
+    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+        &mut deps.storage,
+        config.clone(),
+        shares_after_transaction,
+        from.clone(),
+        user.clone(),
+    )?;
+
+    // Update user shares
+    user.shares = shares_after_transaction;
     TypedStoreMut::<User, S>::attach(&mut deps.storage).store(from.0.as_bytes(), &user)?;
 
     // Update config shares
-    config.shares += amount;
+    config.total_shares += amount;
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
 
     // Mint share tokens
@@ -271,28 +281,25 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
 fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
     storage: &mut S,
     config: Config,
+    shares_after_transaction: u128,
     user_address: HumanAddr,
+    user: User,
 ) -> StdResult<Vec<CosmosMsg>> {
     let mut messages: Vec<CosmosMsg> = vec![];
-    let user = TypedStoreMut::<User, S>::attach(storage)
-        .load(user_address.0.as_bytes())
-        .unwrap_or(User { shares: 0 });
     if user.shares > 0 {
         for profit_token in config.profit_tokens {
             let pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
                 .load(profit_token.address.0.as_bytes())
                 .unwrap();
 
-            if pool.total_added > 0 {
+            if pool.per_share_scaled > 0 {
                 let mut pool_user: PoolUser =
                     PoolUserStorage::from_storage(storage, profit_token.address.clone())
                         .get(user_address.clone())
                         .unwrap_or(PoolUser { debt: 0 });
 
-                let new_debt = user.shares * pool.total_added * CALCULATION_SCALE
-                    / config.shares
-                    / CALCULATION_SCALE;
-                let pending: u128 = new_debt - pool_user.debt;
+                let claimable: u128 = user.shares * pool.per_share_scaled / CALCULATION_SCALE;
+                let pending: u128 = claimable - pool_user.debt;
                 if pending > 0 {
                     messages.push(secret_toolkit::snip20::transfer_msg(
                         user_address.clone(),
@@ -302,11 +309,11 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
                         profit_token.contract_hash,
                         profit_token.address.clone(),
                     )?);
-
-                    pool_user.debt = new_debt;
-                    PoolUserStorage::from_storage(storage, profit_token.address)
-                        .set(user_address.clone(), pool_user)
                 }
+                pool_user.debt =
+                    shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
+                PoolUserStorage::from_storage(storage, profit_token.address)
+                    .set(user_address.clone(), pool_user)
             }
         }
     }
@@ -338,6 +345,7 @@ fn receive<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorReceiveMsg::DepositButtcoin {} => {
             deposit_buttcoin(deps, env, from, amount)
         }
+        ProfitDistributorReceiveMsg::Withdraw {} => withdraw(deps, env, from, amount),
     }
 }
 
@@ -353,6 +361,67 @@ fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
 
     Ok(HandleResponse {
         messages: vec![],
+        log: vec![],
+        data: None,
+    })
+}
+
+fn withdraw<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    from: HumanAddr,
+    amount: u128,
+) -> StdResult<HandleResponse> {
+    let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    authorize(
+        config.pool_shares_token.address.clone(),
+        env.message.sender.clone(),
+    )?;
+
+    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+        .load(from.0.as_bytes())
+        .unwrap();
+    let shares_after_transaction: u128 = user.shares - amount;
+
+    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+        &mut deps.storage,
+        config.clone(),
+        shares_after_transaction,
+        from.clone(),
+        user.clone(),
+    )?;
+
+    // Update user shares
+    user.shares = shares_after_transaction;
+    TypedStoreMut::<User, S>::attach(&mut deps.storage).store(from.0.as_bytes(), &user)?;
+
+    // Update config shares
+    config.total_shares -= amount;
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+
+    // Burn share tokens
+    messages.push(snip20::burn_msg(
+        Uint128(amount),
+        None,
+        RESPONSE_BLOCK_SIZE,
+        config.pool_shares_token.contract_hash,
+        config.pool_shares_token.address,
+    )?);
+
+    // Send buttcoin to user
+    if amount > 0 {
+        messages.push(secret_toolkit::snip20::transfer_msg(
+            from,
+            Uint128(amount),
+            None,
+            RESPONSE_BLOCK_SIZE,
+            config.buttcoin.contract_hash,
+            config.buttcoin.address.clone(),
+        )?);
+    }
+
+    Ok(HandleResponse {
+        messages: messages,
         log: vec![],
         data: None,
     })
@@ -509,7 +578,13 @@ mod tests {
         let mock_profit_token_pool: Pool = TypedStore::attach(&deps.storage)
             .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
-        assert_eq!(mock_profit_token_pool, Pool { total_added: 0 });
+        assert_eq!(
+            mock_profit_token_pool,
+            Pool {
+                per_share_scaled: 0,
+                residue: 0
+            }
+        );
 
         // When adding a profit token that has already been added
         let handle_response = handle(&mut deps, env.clone(), msg.clone());

@@ -13,13 +13,14 @@ pub struct Config {
     pub prng_seed: Vec<u8>,
     pub profit_tokens: Vec<SecretContract>,
     pub pool_shares_token: SecretContract,
-    pub shares: u128,
+    pub total_shares: u128,
     pub viewing_key: String,
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub struct Pool {
-    pub total_added: u128,
+    pub per_share_scaled: u128,
+    pub residue: u128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
