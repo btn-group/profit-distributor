@@ -1,4 +1,2 @@
-# Profit sharing smart contract
-btn.group's profit sharing smart contract
-
-## Example contract
+# Profit distributor
+btn.group's profit distributor
