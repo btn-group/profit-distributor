@@ -48,6 +48,7 @@ pub enum ProfitDistributorQueryMsg {
 pub enum ProfitDistributorReceiveMsg {
     AddProfit {},
     DepositButtcoin {},
+    Withdraw {},
 }
 
 // QUERY RESPONSE STRUCTS
