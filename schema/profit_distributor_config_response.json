@@ -5,6 +5,8 @@
   "required": [
     "admin",
     "buttcoin",
+    "contract_address",
+    "pool_shares_token",
     "profit_tokens"
   ],
   "properties": {
@@ -12,6 +14,12 @@
       "$ref": "#/definitions/HumanAddr"
     },
     "buttcoin": {
+      "$ref": "#/definitions/SecretContract"
+    },
+    "contract_address": {
+      "$ref": "#/definitions/HumanAddr"
+    },
+    "pool_shares_token": {
       "$ref": "#/definitions/SecretContract"
     },
     "profit_tokens": {

@@ -11,7 +11,6 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
-
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
@@ -324,6 +323,8 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
     Ok(ProfitDistributorConfigResponse {
         admin: config.admin,
         buttcoin: config.buttcoin,
+        contract_address: config.contract_address,
+        pool_shares_token: config.pool_shares_token,
         profit_tokens: config.profit_tokens,
     })
 }
@@ -502,6 +503,7 @@ mod tests {
     #[test]
     fn test_public_config() {
         let (_init_result, deps) = init_helper();
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
 
         let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
         let value: ProfitDistributorConfigResponse = from_binary(&res).unwrap();
@@ -511,6 +513,8 @@ mod tests {
             ProfitDistributorConfigResponse {
                 admin: HumanAddr::from(MOCK_ADMIN),
                 buttcoin: mock_buttcoin(),
+                contract_address: config.contract_address,
+                pool_shares_token: mock_pool_shares_token(),
                 profit_tokens: vec![],
             },
             value
@@ -589,6 +593,46 @@ mod tests {
             handle_response.unwrap_err(),
             StdError::generic_err(format!("Record not unique"))
         );
+    }
+
+    #[test]
+    fn test_receive_add_profit() {
+        let (_init_result, mut deps) = init_helper();
+        let amount: Uint128 = Uint128(333);
+        let from: HumanAddr = HumanAddr::from("someuser");
+
+        // When received token is not Buttcoin
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        );
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
+
+        // When received token is Buttcoin
+        // It add to the balance buttcoin
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        let res = handle_response.unwrap();
+        assert_eq!(1, res.messages.len());
     }
 
     #[test]
