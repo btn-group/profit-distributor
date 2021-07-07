@@ -286,20 +286,18 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
     user: User,
 ) -> StdResult<Vec<CosmosMsg>> {
     let mut messages: Vec<CosmosMsg> = vec![];
-    if user.shares > 0 {
-        for profit_token in config.profit_tokens {
-            let pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
-                .load(profit_token.address.0.as_bytes())
-                .unwrap();
-
+    for profit_token in config.profit_tokens {
+        let pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
+            .load(profit_token.address.0.as_bytes())
+            .unwrap();
+        let mut pool_user: PoolUser =
+            PoolUserStorage::from_storage(storage, profit_token.address.clone())
+                .get(user_address.clone())
+                .unwrap_or(PoolUser { debt: 0 });
+        if user.shares > 0 {
             if pool.per_share_scaled > 0 {
-                let mut pool_user: PoolUser =
-                    PoolUserStorage::from_storage(storage, profit_token.address.clone())
-                        .get(user_address.clone())
-                        .unwrap_or(PoolUser { debt: 0 });
-
-                let claimable: u128 = user.shares * pool.per_share_scaled / CALCULATION_SCALE;
-                let pending: u128 = claimable - pool_user.debt;
+                let pending: u128 =
+                    user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt;
                 if pending > 0 {
                     messages.push(secret_toolkit::snip20::transfer_msg(
                         user_address.clone(),
@@ -310,12 +308,11 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
                         profit_token.address.clone(),
                     )?);
                 }
-                pool_user.debt =
-                    shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
-                PoolUserStorage::from_storage(storage, profit_token.address)
-                    .set(user_address.clone(), pool_user)
             }
         }
+        pool_user.debt = shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
+        PoolUserStorage::from_storage(storage, profit_token.address)
+            .set(user_address.clone(), pool_user)
     }
     Ok(messages)
 }
