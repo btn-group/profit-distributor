@@ -90,18 +90,10 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: u128,
 ) -> StdResult<HandleResponse> {
-    // Test that this is only called by an allowed token
     let token_address_as_bytes = env.message.sender.0.as_bytes();
-    let pool_option: Option<Pool> =
-        TypedStoreMut::attach(&mut deps.storage).load(token_address_as_bytes)?;
-    if pool_option.is_none() {
-        return Err(StdError::Unauthorized { backtrace: None });
-    }
-
-    // If there's no new amount
+    let mut pool: Pool = TypedStoreMut::attach(&mut deps.storage).load(token_address_as_bytes)?;
     if amount > 0 {
         let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
-        let mut pool: Pool = pool_option.unwrap();
         if config.total_shares == 0 {
             pool.residue += amount;
         } else {
@@ -432,6 +424,7 @@ mod tests {
     use crate::state::SecretContract;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
+    use cosmwasm_std::StdError::NotFound;
 
     pub const MOCK_ADMIN: &str = "admin";
 
@@ -599,40 +592,123 @@ mod tests {
     fn test_receive_add_profit() {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
+        let buttcoin_deposit_amount: Uint128 = Uint128(3);
         let from: HumanAddr = HumanAddr::from("someuser");
 
-        // When received token is not Buttcoin
-        let msg = ProfitDistributorHandleMsg::Receive {
+        // = When received token is not an allowed profit token
+        // = * It returns an unauthorized error
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
             sender: from.clone(),
-            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-        };
-        let handle_response = handle(
-            &mut deps,
-            mock_env(mock_pool_shares_token().address.to_string(), &[]),
-            msg.clone(),
-        );
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::Unauthorized { backtrace: None }
-        );
-
-        // When received token is Buttcoin
-        // It add to the balance buttcoin
-        let msg = ProfitDistributorHandleMsg::Receive {
-            amount: amount,
-            from: from.clone(),
-            sender: from.clone(),
-            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
         };
         let handle_response = handle(
             &mut deps,
             mock_env(mock_buttcoin().address.to_string(), &[]),
-            msg.clone(),
+            receive_add_profit_msg.clone(),
         );
-        let res = handle_response.unwrap();
-        assert_eq!(1, res.messages.len());
+        assert_eq!(
+            handle_response.unwrap_err(),
+            NotFound {
+                kind: "cw_profit_distributor::state::Pool".to_string(),
+                backtrace: None
+            }
+        );
+
+        // = When received token is an allowed profit token
+        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
+            token: mock_buttcoin(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(MOCK_ADMIN, &[]),
+            add_profit_token_msg.clone(),
+        );
+        handle_response.unwrap();
+        // == With an amount of zero
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(0),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_add_profit_msg.clone(),
+        );
+        handle_response.unwrap();
+        // == * It does not update the token's pool
+        let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
+            .load(mock_buttcoin().address.0.as_bytes())
+            .unwrap();
+        assert_eq!(pool.per_share_scaled, 0);
+        assert_eq!(pool.residue, 0);
+        // == With an amount greater than zero
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_add_profit_msg.clone(),
+        );
+        // === When there are no shares
+        // === * It adds to the pool's residue
+        handle_response.unwrap();
+        let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
+            .load(mock_buttcoin().address.0.as_bytes())
+            .unwrap();
+        assert_eq!(pool.per_share_scaled, 0);
+        assert_eq!(pool.residue, amount.u128());
+
+        // === When there are shares
+        let receive_deposit_buttcoin_msg = ProfitDistributorHandleMsg::Receive {
+            amount: buttcoin_deposit_amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_deposit_buttcoin_msg.clone(),
+        )
+        .unwrap();
+        // === * It calculates the per_share factoring in the new amount and the residue and resets the residue
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_add_profit_msg.clone(),
+        );
+        handle_response.unwrap();
+        let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
+            .load(mock_buttcoin().address.0.as_bytes())
+            .unwrap();
+        assert_eq!(
+            pool.per_share_scaled,
+            amount.u128() * 2 * CALCULATION_SCALE / buttcoin_deposit_amount.u128()
+        );
+        assert_eq!(pool.residue, 0);
+        // === When adding profit when shares exist and no residue
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_add_profit_msg.clone(),
+        );
+        handle_response.unwrap();
+        let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
+            .load(mock_buttcoin().address.0.as_bytes())
+            .unwrap();
+        assert_eq!(
+            pool.per_share_scaled,
+            amount.u128() * 3 * CALCULATION_SCALE / buttcoin_deposit_amount.u128()
+        );
+        assert_eq!(pool.residue, 0);
     }
 
     #[test]
