@@ -61,5 +61,7 @@ pub struct ProfitDistributorBalanceResponse {
 pub struct ProfitDistributorConfigResponse {
     pub admin: HumanAddr,
     pub buttcoin: SecretContract,
+    pub contract_address: HumanAddr,
+    pub pool_shares_token: SecretContract,
     pub profit_tokens: Vec<SecretContract>,
 }
