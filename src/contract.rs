@@ -589,7 +589,40 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_add_profit() {
+    fn test_handle_change_admin() {
+        let (_init_result, mut deps) = init_helper();
+
+        // = When called by a non-admin
+        // = * It returns an unauthorized error
+        let change_admin_msg = ProfitDistributorHandleMsg::ChangeAdmin {
+            address: mock_buttcoin().address,
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address, &[]),
+            change_admin_msg.clone(),
+        );
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
+
+        // = When called by an admin
+        // = * It changes the admin
+        let handle_response = handle(
+            &mut deps,
+            mock_env(MOCK_ADMIN, &[]),
+            change_admin_msg.clone(),
+        );
+        handle_response.unwrap();
+        let config: Config = TypedStoreMut::attach(&mut deps.storage)
+            .load(CONFIG_KEY)
+            .unwrap();
+        assert_eq!(config.admin, mock_buttcoin().address);
+    }
+
+    #[test]
+    fn test_handle_receive_add_profit() {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
         let buttcoin_deposit_amount: Uint128 = Uint128(3);
@@ -712,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_deposit_buttcoin() {
+    fn test_handle_receive_deposit_buttcoin() {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
         let from: HumanAddr = HumanAddr::from("someuser");
