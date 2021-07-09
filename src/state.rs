@@ -21,6 +21,7 @@ pub struct Config {
 pub struct Pool {
     pub per_share_scaled: u128,
     pub residue: u128,
+    pub total_added: u128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

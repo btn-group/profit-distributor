@@ -101,6 +101,7 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
                 (amount + pool.residue) * CALCULATION_SCALE / config.total_shares;
             pool.residue = 0;
         };
+        pool.total_added += amount;
         TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
     }
 
@@ -133,6 +134,7 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
         &Pool {
             per_share_scaled: 0,
             residue: 0,
+            total_added: 0,
         },
     )?;
 
