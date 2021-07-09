@@ -1,7 +1,8 @@
 use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
 use crate::msg::{
     ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
-    ProfitDistributorInitMsg, ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
+    ProfitDistributorInitMsg, ProfitDistributorPoolResponse, ProfitDistributorQueryMsg,
+    ProfitDistributorReceiveMsg,
 };
 use crate::state::{Config, Pool, PoolUser, PoolUserStorage, SecretContract, User};
 use crate::viewing_key::ViewingKey;
@@ -82,6 +83,9 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     match msg {
         ProfitDistributorQueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
         ProfitDistributorQueryMsg::Config {} => to_binary(&public_config(deps)?),
+        ProfitDistributorQueryMsg::Pool { token_address } => {
+            to_binary(&public_pool(deps, token_address)?)
+        }
     }
 }
 
@@ -331,6 +335,16 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn public_pool<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    token_address: HumanAddr,
+) -> StdResult<ProfitDistributorPoolResponse> {
+    let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
+    Ok(ProfitDistributorPoolResponse {
+        total_added: Uint128(pool.total_added),
+    })
+}
+
 fn receive<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -531,6 +545,97 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_public_pool() {
+        let (_init_result, mut deps) = init_helper();
+        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
+            token: mock_buttcoin(),
+        };
+        let amount: Uint128 = Uint128(123);
+
+        handle(
+            &mut deps,
+            mock_env(MOCK_ADMIN, &[]),
+            add_profit_token_msg.clone(),
+        )
+        .unwrap();
+
+        // = When no profit has been added
+        // = * It returns a zero value
+        let res = query(
+            &deps,
+            ProfitDistributorQueryMsg::Pool {
+                token_address: mock_buttcoin().address,
+            },
+        )
+        .unwrap();
+        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
+        assert_eq!(
+            ProfitDistributorPoolResponse {
+                total_added: Uint128(0),
+            },
+            value
+        );
+
+        // == When profit has been added
+        // == * It returns the total added
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: mock_buttcoin().address,
+            sender: mock_buttcoin().address,
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_add_profit_msg.clone(),
+        )
+        .unwrap();
+        let res = query(
+            &deps,
+            ProfitDistributorQueryMsg::Pool {
+                token_address: mock_buttcoin().address,
+            },
+        )
+        .unwrap();
+        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
+        assert_eq!(
+            ProfitDistributorPoolResponse {
+                total_added: amount,
+            },
+            value
+        );
+
+        // === When shares added
+        // === * It doesn't affect the total added
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: mock_pool_shares_token().address,
+            sender: mock_pool_shares_token().address,
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        let res = query(
+            &deps,
+            ProfitDistributorQueryMsg::Pool {
+                token_address: mock_buttcoin().address,
+            },
+        )
+        .unwrap();
+        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
+        assert_eq!(
+            ProfitDistributorPoolResponse {
+                total_added: amount,
+            },
+            value
+        );
+    }
+
     // === HANDLE TESTS ===
 
     #[test]
@@ -593,7 +698,8 @@ mod tests {
             mock_profit_token_pool,
             Pool {
                 per_share_scaled: 0,
-                residue: 0
+                residue: 0,
+                total_added: 0,
             }
         );
 
