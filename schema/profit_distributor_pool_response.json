@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProfitDistributorPoolResponse",
+  "type": "object",
+  "required": [
+    "total_added"
+  ],
+  "properties": {
+    "total_added": {
+      "$ref": "#/definitions/Uint128"
+    }
+  },
+  "definitions": {
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}

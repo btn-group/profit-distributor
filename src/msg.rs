@@ -41,6 +41,7 @@ pub enum ProfitDistributorHandleMsg {
 pub enum ProfitDistributorQueryMsg {
     Balance { token: SecretContract },
     Config {},
+    Pool { token_address: HumanAddr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -55,6 +56,11 @@ pub enum ProfitDistributorReceiveMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ProfitDistributorBalanceResponse {
     pub amount: Uint128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ProfitDistributorPoolResponse {
+    pub total_added: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProfitDistributorReceiveMsg",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "add_profit"
+      ],
+      "properties": {
+        "add_profit": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "deposit_buttcoin"
+      ],
+      "properties": {
+        "deposit_buttcoin": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "withdraw"
+      ],
+      "properties": {
+        "withdraw": {
+          "type": "object"
+        }
+      }
+    }
+  ]
+}
