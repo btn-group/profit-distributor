@@ -278,7 +278,7 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
 ) -> StdResult<Vec<CosmosMsg>> {
     let mut messages: Vec<CosmosMsg> = vec![];
     for profit_token in config.profit_tokens {
-        let pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
+        let mut pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
             .load(profit_token.address.0.as_bytes())
             .unwrap();
         let mut pool_user: PoolUser =
@@ -286,6 +286,14 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
                 .get(user_address.clone())
                 .unwrap_or(PoolUser { debt: 0 });
         if user.shares > 0 {
+            if pool.residue > 0 {
+                pool.per_share_scaled += pool.residue * CALCULATION_SCALE / config.total_shares;
+                pool.residue = 0;
+                TypedStoreMut::attach(storage)
+                    .store(profit_token.address.0.as_bytes(), &pool)
+                    .unwrap();
+            }
+
             if pool.per_share_scaled > 0 {
                 let pending: u128 =
                     user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt;
@@ -371,6 +379,13 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
         .load(from.0.as_bytes())
         .unwrap();
+    if amount > user.shares {
+        return Err(StdError::generic_err(format!(
+            "insufficient funds to withdraw: balance={}, required={}",
+            user.shares, amount,
+        )));
+    }
+
     let shares_after_transaction: u128 = user.shares - amount;
 
     let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
@@ -381,25 +396,25 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
         user.clone(),
     )?;
 
-    // Update user shares
-    user.shares = shares_after_transaction;
-    TypedStoreMut::<User, S>::attach(&mut deps.storage).store(from.0.as_bytes(), &user)?;
-
-    // Update config shares
-    config.total_shares -= amount;
-    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
-
-    // Burn share tokens
-    messages.push(snip20::burn_msg(
-        Uint128(amount),
-        None,
-        RESPONSE_BLOCK_SIZE,
-        config.pool_shares_token.contract_hash,
-        config.pool_shares_token.address,
-    )?);
-
-    // Send buttcoin to user
     if amount > 0 {
+        // Update user shares
+        user.shares = shares_after_transaction;
+        TypedStoreMut::<User, S>::attach(&mut deps.storage).store(from.0.as_bytes(), &user)?;
+
+        // Update config shares
+        config.total_shares -= amount;
+        TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+
+        // Burn share tokens
+        messages.push(snip20::burn_msg(
+            Uint128(amount),
+            None,
+            RESPONSE_BLOCK_SIZE,
+            config.pool_shares_token.contract_hash,
+            config.pool_shares_token.address,
+        )?);
+
+        // Send buttcoin to user
         messages.push(secret_toolkit::snip20::transfer_msg(
             from,
             Uint128(amount),
@@ -998,5 +1013,374 @@ mod tests {
             .load(from.0.as_bytes())
             .unwrap();
         assert_eq!(user.shares, amount_two.u128());
+    }
+
+    #[test]
+    fn test_handle_receive_withdraw() {
+        let (_init_result, mut deps) = init_helper();
+        let amount: Uint128 = Uint128(333);
+        let from: HumanAddr = HumanAddr::from("someuser");
+
+        // = When Buttcoin is deposited
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        // == When profit token is added
+        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
+            token: mock_buttcoin(),
+        };
+        handle(
+            &mut deps,
+            mock_env(MOCK_ADMIN, &[]),
+            add_profit_token_msg.clone(),
+        )
+        .unwrap();
+        // === When more Buttcoin is added by the user
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        // === When profit is added
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(amount.u128() * 4),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address, &[]),
+            receive_add_profit_msg.clone(),
+        )
+        .unwrap();
+        // ====== When Buttcoin is added by another user
+        let from_two: HumanAddr = HumanAddr::from("user-two");
+        let amount_two: Uint128 = Uint128(65404);
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount_two,
+            from: from_two.clone(),
+            sender: from_two.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+
+        // === WITHDRAWING BEGINGS ===
+        // ======= When user two tries to withdraw using a non pool shares token
+        let receive_withdraw_msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount_two,
+            from: from_two.clone(),
+            sender: from_two.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Withdraw {}).unwrap(),
+        };
+        let env = mock_env(mock_buttcoin().address.to_string(), &[]);
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It raises an unauthorized error
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
+
+        // ======= When user two tries to withdraw using pool shares token
+        let env = mock_env(mock_pool_shares_token().address.to_string(), &[]);
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        config.total_shares;
+        let total_shares_before_transaction: u128 = config.total_shares;
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from_two.0.as_bytes())
+            .unwrap();
+        let user_shares_before_transaction: u128 = user.shares;
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It updates the user shares, total shares, burns the tokens received and sends the equivalent amount of Buttcoin to withdrawer
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![
+                    snip20::burn_msg(
+                        amount_two,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_pool_shares_token().contract_hash,
+                        mock_pool_shares_token().address,
+                    )
+                    .unwrap(),
+                    secret_toolkit::snip20::transfer_msg(
+                        from_two.clone(),
+                        amount_two,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap()
+                ],
+                log: vec![],
+                data: None,
+            },
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(
+            config.total_shares,
+            total_shares_before_transaction - amount_two.u128()
+        );
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from_two.0.as_bytes())
+            .unwrap();
+        assert_eq!(
+            user.shares,
+            user_shares_before_transaction - amount_two.u128()
+        );
+
+        // ======= When user one withdraws
+        let receive_withdraw_msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Withdraw {}).unwrap(),
+        };
+        let env = mock_env(mock_pool_shares_token().address.to_string(), &[]);
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        config.total_shares;
+        let total_shares_before_transaction: u128 = config.total_shares;
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        let user_shares_before_transaction: u128 = user.shares;
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer and sends reward
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![
+                    secret_toolkit::snip20::transfer_msg(
+                        from.clone(),
+                        Uint128(amount.u128() * 4),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap(),
+                    snip20::burn_msg(
+                        amount,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_pool_shares_token().contract_hash,
+                        mock_pool_shares_token().address,
+                    )
+                    .unwrap(),
+                    secret_toolkit::snip20::transfer_msg(
+                        from.clone(),
+                        amount,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap()
+                ],
+                log: vec![],
+                data: None,
+            },
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(
+            config.total_shares,
+            total_shares_before_transaction - amount.u128()
+        );
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, user_shares_before_transaction - amount.u128());
+
+        // ======== When user one withdraw full balance
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        let receive_withdraw_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(user.shares),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Withdraw {}).unwrap(),
+        };
+        let env = mock_env(mock_pool_shares_token().address.to_string(), &[]);
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer (No rewards to send)
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![
+                    snip20::burn_msg(
+                        Uint128(user.shares),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_pool_shares_token().contract_hash,
+                        mock_pool_shares_token().address,
+                    )
+                    .unwrap(),
+                    secret_toolkit::snip20::transfer_msg(
+                        from.clone(),
+                        Uint128(user.shares),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap()
+                ],
+                log: vec![],
+                data: None,
+            },
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 0);
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, 0);
+        // ======= When user one tries to withdraw more than their balance
+        let receive_withdraw_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(1),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Withdraw {}).unwrap(),
+        };
+        let env = mock_env(mock_pool_shares_token().address.to_string(), &[]);
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It raises an error
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::generic_err(format!(
+                "insufficient funds to withdraw: balance={}, required={}",
+                user.shares, 1,
+            ))
+        );
+
+        // ======== When profit is added when there are no shares
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(amount.u128() * 4),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address, &[]),
+            receive_add_profit_msg.clone(),
+        )
+        .unwrap();
+        // ======== When Buttcoin is added by a user
+        let from_two: HumanAddr = HumanAddr::from("user-two");
+        let amount_two: Uint128 = Uint128(123);
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount_two,
+            from: from_two.clone(),
+            sender: from_two.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // ======= * It updates the user shares, total shares, sends the equivalent amount of pool shares to depositer and sends rewards
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![snip20::mint_msg(
+                    from_two.clone(),
+                    amount_two,
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    mock_pool_shares_token().contract_hash,
+                    mock_pool_shares_token().address,
+                )
+                .unwrap(),],
+                log: vec![],
+                data: None,
+            },
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, amount_two.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from_two.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, amount_two.u128());
+
+        // ======== When user withdraws full balance
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from_two.0.as_bytes())
+            .unwrap();
+        let receive_withdraw_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(user.shares),
+            from: from_two.clone(),
+            sender: from_two.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::Withdraw {}).unwrap(),
+        };
+        let env = mock_env(mock_pool_shares_token().address.to_string(), &[]);
+        let handle_response = handle(&mut deps, env, receive_withdraw_msg.clone());
+        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer
+        assert_eq!(
+            handle_response.unwrap(),
+            HandleResponse {
+                messages: vec![
+                    secret_toolkit::snip20::transfer_msg(
+                        from_two.clone(),
+                        Uint128(1331),
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap(),
+                    snip20::burn_msg(
+                        amount_two,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_pool_shares_token().contract_hash,
+                        mock_pool_shares_token().address,
+                    )
+                    .unwrap(),
+                    secret_toolkit::snip20::transfer_msg(
+                        from_two.clone(),
+                        amount_two,
+                        None,
+                        RESPONSE_BLOCK_SIZE,
+                        mock_buttcoin().contract_hash,
+                        mock_buttcoin().address.clone(),
+                    )
+                    .unwrap()
+                ],
+                log: vec![],
+                data: None,
+            },
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 0);
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from_two.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, 0);
     }
 }
