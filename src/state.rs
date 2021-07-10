@@ -1,4 +1,6 @@
-use cosmwasm_std::{HumanAddr, ReadonlyStorage, StdResult, Storage};
+use crate::constants::VIEWING_KEY_KEY;
+use crate::viewing_key::ViewingKey;
+use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
 use secret_toolkit::serialization::{Bincode2, Serde};
@@ -51,8 +53,8 @@ impl<'a, S: Storage> PoolUserReadonlyStorage<'a, S> {
         }
     }
 
-    pub fn get(&self, key: &[u8]) -> Option<PoolUser> {
-        self.as_readonly().get(key)
+    pub fn get(&mut self, user_address: HumanAddr) -> Option<PoolUser> {
+        self.as_readonly().get(user_address.0.as_bytes())
     }
 
     // private
@@ -92,6 +94,17 @@ impl<'a, S: ReadonlyStorage> ReadonlyPoolUserStorageImpl<'a, S> {
     pub fn get(&self, key: &[u8]) -> Option<PoolUser> {
         may_load(self.0, &key).ok().unwrap()
     }
+}
+
+// === VIEWING KEYS ===
+pub fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &ViewingKey) {
+    let mut balance_store = PrefixedStorage::new(VIEWING_KEY_KEY, store);
+    balance_store.set(owner.as_slice(), &key.to_hashed());
+}
+
+pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
+    let balance_store = ReadonlyPrefixedStorage::new(VIEWING_KEY_KEY, store);
+    balance_store.get(owner.as_slice())
 }
 
 // === FUNCTIONS ===
