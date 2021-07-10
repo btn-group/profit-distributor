@@ -1,11 +1,13 @@
 use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
 use crate::msg::{
-    ProfitDistributorBalanceResponse, ProfitDistributorConfigResponse, ProfitDistributorHandleMsg,
-    ProfitDistributorInitMsg, ProfitDistributorPoolResponse, ProfitDistributorQueryMsg,
-    ProfitDistributorReceiveMsg,
+    ProfitDistributorHandleMsg, ProfitDistributorInitMsg, ProfitDistributorQueryAnswer,
+    ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
 };
-use crate::state::{Config, Pool, PoolUser, PoolUserStorage, SecretContract, User};
-use crate::viewing_key::ViewingKey;
+use crate::state::{
+    read_viewing_key, Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage,
+    SecretContract, User,
+};
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
@@ -14,6 +16,7 @@ use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
+use secret_toolkit::utils::pad_query_result;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -81,12 +84,70 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: ProfitDistributorQueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        ProfitDistributorQueryMsg::Balance { token } => to_binary(&balance(deps, token)?),
-        ProfitDistributorQueryMsg::Config {} => to_binary(&public_config(deps)?),
-        ProfitDistributorQueryMsg::Pool { token_address } => {
-            to_binary(&public_pool(deps, token_address)?)
+        ProfitDistributorQueryMsg::Balance { token } => balance(deps, token),
+        ProfitDistributorQueryMsg::Config {} => public_config(deps),
+        ProfitDistributorQueryMsg::Pool { token_address } => public_pool(deps, token_address),
+        _ => pad_query_result(authenticated_queries(deps, msg), RESPONSE_BLOCK_SIZE),
+    }
+}
+
+fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    msg: ProfitDistributorQueryMsg,
+) -> StdResult<Binary> {
+    let (address, key) = msg.get_validation_params();
+    let canonical_addr = deps.api.canonical_address(address)?;
+    let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+
+    if expected_key.is_none() {
+        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+        // in a way which will allow to time the command and determine if a viewing key doesn't exist
+        key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
+    } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+        return match msg {
+            ProfitDistributorQueryMsg::ClaimableProfit {
+                token_address,
+                user_address,
+                ..
+            } => claimable_profit(deps, &token_address, &user_address),
+            _ => panic!("This should never happen"),
+        };
+    }
+
+    Ok(to_binary(&ProfitDistributorQueryAnswer::QueryError {
+        msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+    })?)
+}
+
+fn claimable_profit<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    token_address: &HumanAddr,
+    user_address: &HumanAddr,
+) -> StdResult<Binary> {
+    let mut amount: u128 = 0;
+
+    // Load user
+    let user = TypedStore::<User, S>::attach(&deps.storage).load(user_address.0.as_bytes())?;
+
+    if user.shares > 0 {
+        // Load pool
+        let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
+
+        if pool.residue > 0 {
+            amount = pool.residue;
+        } else {
+            // Load pool_user
+            let pool_user: PoolUser =
+                PoolUserReadonlyStorage::from_storage(&deps.storage, token_address.clone())
+                    .get(user_address.clone())
+                    .unwrap_or(PoolUser { debt: 0 });
+            amount = user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt;
         }
     }
+
+    to_binary(&ProfitDistributorQueryAnswer::ClaimableProfit {
+        amount: Uint128(amount),
+    })
 }
 
 fn add_profit<S: Storage, A: Api, Q: Querier>(
@@ -175,7 +236,7 @@ fn authorize(expected: HumanAddr, received: HumanAddr) -> StdResult<()> {
 fn balance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token: SecretContract,
-) -> StdResult<ProfitDistributorBalanceResponse> {
+) -> StdResult<Binary> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
     let balance = snip20::balance_query(
         &deps.querier,
@@ -185,7 +246,8 @@ fn balance<S: Storage, A: Api, Q: Querier>(
         token.contract_hash,
         token.address,
     )?;
-    Ok(ProfitDistributorBalanceResponse {
+
+    to_binary(&ProfitDistributorQueryAnswer::Balance {
         amount: balance.amount,
     })
 }
@@ -322,11 +384,10 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
     Ok(messages)
 }
 
-fn public_config<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-) -> StdResult<ProfitDistributorConfigResponse> {
+fn public_config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    Ok(ProfitDistributorConfigResponse {
+
+    to_binary(&ProfitDistributorQueryAnswer::Config {
         admin: config.admin,
         buttcoin: config.buttcoin,
         contract_address: config.contract_address,
@@ -338,9 +399,10 @@ fn public_config<S: Storage, A: Api, Q: Querier>(
 fn public_pool<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token_address: HumanAddr,
-) -> StdResult<ProfitDistributorPoolResponse> {
+) -> StdResult<Binary> {
     let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
-    Ok(ProfitDistributorPoolResponse {
+
+    to_binary(&ProfitDistributorQueryAnswer::Pool {
         total_added: Uint128(pool.total_added),
     })
 }
@@ -520,8 +582,13 @@ mod tests {
         );
 
         let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
-        let value: ProfitDistributorConfigResponse = from_binary(&res).unwrap();
-        assert_eq!(value.admin, HumanAddr("bob".to_string()));
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
+        match value {
+            ProfitDistributorQueryAnswer::Config { admin, .. } => {
+                assert_eq!(admin, HumanAddr("bob".to_string()))
+            }
+            _ => panic!("at the taco bell"),
+        }
     }
 
     #[test]
@@ -530,19 +597,25 @@ mod tests {
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
 
         let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
-        let value: ProfitDistributorConfigResponse = from_binary(&res).unwrap();
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
         // Test response does not include viewing key.
         // Test that the desired fields are returned.
-        assert_eq!(
-            ProfitDistributorConfigResponse {
-                admin: HumanAddr::from(MOCK_ADMIN),
-                buttcoin: mock_buttcoin(),
-                contract_address: config.contract_address,
-                pool_shares_token: mock_pool_shares_token(),
-                profit_tokens: vec![],
-            },
-            value
-        );
+        match value {
+            ProfitDistributorQueryAnswer::Config {
+                admin,
+                buttcoin,
+                contract_address,
+                pool_shares_token,
+                profit_tokens,
+            } => {
+                assert_eq!(admin, config.admin);
+                assert_eq!(buttcoin, config.buttcoin);
+                assert_eq!(contract_address, config.contract_address);
+                assert_eq!(pool_shares_token, config.pool_shares_token);
+                assert_eq!(profit_tokens, config.profit_tokens);
+            }
+            _ => panic!("at the taco bell"),
+        }
     }
 
     #[test]
@@ -569,13 +642,13 @@ mod tests {
             },
         )
         .unwrap();
-        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
-        assert_eq!(
-            ProfitDistributorPoolResponse {
-                total_added: Uint128(0),
-            },
-            value
-        );
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
+        match value {
+            ProfitDistributorQueryAnswer::Pool { total_added } => {
+                assert_eq!(total_added, Uint128(0));
+            }
+            _ => panic!("at the taco bell"),
+        }
 
         // == When profit has been added
         // == * It returns the total added
@@ -598,13 +671,13 @@ mod tests {
             },
         )
         .unwrap();
-        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
-        assert_eq!(
-            ProfitDistributorPoolResponse {
-                total_added: amount,
-            },
-            value
-        );
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
+        match value {
+            ProfitDistributorQueryAnswer::Pool { total_added } => {
+                assert_eq!(total_added, amount);
+            }
+            _ => panic!("at the taco bell"),
+        }
 
         // === When shares added
         // === * It doesn't affect the total added
@@ -627,13 +700,13 @@ mod tests {
             },
         )
         .unwrap();
-        let value: ProfitDistributorPoolResponse = from_binary(&res).unwrap();
-        assert_eq!(
-            ProfitDistributorPoolResponse {
-                total_added: amount,
-            },
-            value
-        );
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
+        match value {
+            ProfitDistributorQueryAnswer::Pool { total_added } => {
+                assert_eq!(total_added, amount);
+            }
+            _ => panic!("at the taco bell"),
+        }
     }
 
     // === HANDLE TESTS ===

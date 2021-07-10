@@ -50,6 +50,33 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "claimable_profit"
+      ],
+      "properties": {
+        "claimable_profit": {
+          "type": "object",
+          "required": [
+            "key",
+            "token_address",
+            "user_address"
+          ],
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "token_address": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "user_address": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {

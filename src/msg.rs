@@ -1,4 +1,5 @@
 use crate::state::SecretContract;
+use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{Binary, HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -39,9 +40,53 @@ pub enum ProfitDistributorHandleMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorQueryMsg {
-    Balance { token: SecretContract },
+    Balance {
+        token: SecretContract,
+    },
     Config {},
-    Pool { token_address: HumanAddr },
+    Pool {
+        token_address: HumanAddr,
+    },
+    ClaimableProfit {
+        token_address: HumanAddr,
+        user_address: HumanAddr,
+        key: String,
+    },
+}
+impl ProfitDistributorQueryMsg {
+    pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
+        match self {
+            ProfitDistributorQueryMsg::ClaimableProfit {
+                user_address, key, ..
+            } => (user_address, ViewingKey(key.clone())),
+            _ => panic!("This should never happen"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfitDistributorQueryAnswer {
+    Balance {
+        amount: Uint128,
+    },
+    ClaimableProfit {
+        amount: Uint128,
+    },
+    Pool {
+        total_added: Uint128,
+    },
+    Config {
+        admin: HumanAddr,
+        buttcoin: SecretContract,
+        contract_address: HumanAddr,
+        pool_shares_token: SecretContract,
+        profit_tokens: Vec<SecretContract>,
+    },
+
+    QueryError {
+        msg: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -50,24 +95,4 @@ pub enum ProfitDistributorReceiveMsg {
     AddProfit {},
     DepositButtcoin {},
     Withdraw {},
-}
-
-// QUERY RESPONSE STRUCTS
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ProfitDistributorBalanceResponse {
-    pub amount: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ProfitDistributorPoolResponse {
-    pub total_added: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ProfitDistributorConfigResponse {
-    pub admin: HumanAddr,
-    pub buttcoin: SecretContract,
-    pub contract_address: HumanAddr,
-    pub pool_shares_token: SecretContract,
-    pub profit_tokens: Vec<SecretContract>,
 }
