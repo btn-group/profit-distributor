@@ -1,18 +1,16 @@
-use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE, VIEWING_KEY_KEY};
+use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE};
 use crate::msg::{
     ProfitDistributorHandleMsg, ProfitDistributorInitMsg, ProfitDistributorQueryAnswer,
     ProfitDistributorQueryMsg, ProfitDistributorReceiveMsg,
 };
 use crate::state::{
-    read_viewing_key, Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage,
-    SecretContract, User,
+    Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
-use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use crate::viewing_key::{create_viewing_key, read_viewing_key, set_viewing_key, VIEWING_KEY_SIZE};
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
 };
-use cosmwasm_storage::PrefixedStorage;
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
@@ -70,7 +68,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         ProfitDistributorHandleMsg::CreateViewingKey { entropy, .. } => {
-            create_viewing_key(deps, env, entropy)
+            let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
+            create_viewing_key(deps, env, entropy, config.prng_seed)
         }
         ProfitDistributorHandleMsg::SetViewingKey { key, .. } => set_viewing_key(deps, env, key),
         ProfitDistributorHandleMsg::Receive {
@@ -252,26 +251,6 @@ fn balance<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    entropy: String,
-) -> StdResult<HandleResponse> {
-    let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
-    let prng_seed = config.prng_seed;
-
-    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
-
-    let mut vk_store = PrefixedStorage::new(VIEWING_KEY_KEY, &mut deps.storage);
-    vk_store.set(env.message.sender.0.as_bytes(), &key.to_hashed());
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: None,
-    })
-}
-
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -423,23 +402,6 @@ fn receive<S: Storage, A: Api, Q: Querier>(
         }
         ProfitDistributorReceiveMsg::Withdraw {} => withdraw(deps, env, from, amount),
     }
-}
-
-fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    key: String,
-) -> StdResult<HandleResponse> {
-    let vk = ViewingKey(key);
-
-    let mut vk_store = PrefixedStorage::new(VIEWING_KEY_KEY, &mut deps.storage);
-    vk_store.set(env.message.sender.0.as_bytes(), &vk.to_hashed());
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: None,
-    })
 }
 
 fn withdraw<S: Storage, A: Api, Q: Querier>(
