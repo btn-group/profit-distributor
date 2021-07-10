@@ -108,7 +108,7 @@ fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                 token_address,
                 user_address,
                 ..
-            } => claimable_profit(deps, &token_address, &user_address),
+            } => query_claimable_profit(deps, &token_address, &user_address),
             _ => panic!("This should never happen"),
         };
     }
@@ -118,30 +118,31 @@ fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     })?)
 }
 
-fn claimable_profit<S: Storage, A: Api, Q: Querier>(
+fn claimable_profit(pool: Pool, pool_user: PoolUser, user: User) -> u128 {
+    if pool.residue > 0 {
+        pool.residue
+    } else {
+        user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt
+    }
+}
+
+fn query_claimable_profit<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     token_address: &HumanAddr,
     user_address: &HumanAddr,
 ) -> StdResult<Binary> {
     let mut amount: u128 = 0;
-
     // Load user
     let user = TypedStore::<User, S>::attach(&deps.storage).load(user_address.0.as_bytes())?;
-
     if user.shares > 0 {
         // Load pool
         let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
-
-        if pool.residue > 0 {
-            amount = pool.residue;
-        } else {
-            // Load pool_user
-            let pool_user: PoolUser =
-                PoolUserReadonlyStorage::from_storage(&deps.storage, token_address.clone())
-                    .get(user_address.clone())
-                    .unwrap_or(PoolUser { debt: 0 });
-            amount = user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt;
-        }
+        // Load pool_user
+        let pool_user: PoolUser =
+            PoolUserReadonlyStorage::from_storage(&deps.storage, token_address.clone())
+                .get(user_address.clone())
+                .unwrap_or(PoolUser { debt: 0 });
+        amount = claimable_profit(pool, pool_user, user);
     }
 
     to_binary(&ProfitDistributorQueryAnswer::ClaimableProfit {
@@ -342,12 +343,12 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
             }
 
             if pool.per_share_scaled > 0 {
-                let pending: u128 =
-                    user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt;
-                if pending > 0 {
+                let claimable_profit: u128 =
+                    claimable_profit(pool.clone(), pool_user.clone(), user.clone());
+                if claimable_profit > 0 {
                     messages.push(secret_toolkit::snip20::transfer_msg(
                         user_address.clone(),
-                        Uint128(pending),
+                        Uint128(claimable_profit),
                         None,
                         RESPONSE_BLOCK_SIZE,
                         profit_token.contract_hash,
