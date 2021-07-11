@@ -1,5 +1,8 @@
+use crate::msg::ProfitDistributorHandleAnswer;
+use crate::msg::ProfitDistributorResponseStatus::Success;
 use cosmwasm_std::{
-    Api, CanonicalAddr, Env, Extern, HandleResponse, Querier, ReadonlyStorage, StdResult, Storage,
+    to_binary, Api, CanonicalAddr, Env, Extern, HandleResponse, Querier, ReadonlyStorage,
+    StdResult, Storage,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
@@ -69,7 +72,9 @@ pub fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(
+            &ProfitDistributorHandleAnswer::CreateViewingKey { status: Success },
+        )?),
     })
 }
 
@@ -90,7 +95,9 @@ pub fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(
+            &ProfitDistributorHandleAnswer::CreateViewingKey { status: Success },
+        )?),
     })
 }
 
