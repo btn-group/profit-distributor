@@ -1,3 +1,4 @@
+use crate::authorize::authorize;
 use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE};
 use crate::msg::ProfitDistributorResponseStatus::Success;
 use crate::msg::{
@@ -231,14 +232,6 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
             status: Success,
         })?),
     })
-}
-
-fn authorize(expected: HumanAddr, received: HumanAddr) -> StdResult<()> {
-    if expected != received {
-        return Err(StdError::Unauthorized { backtrace: None });
-    }
-
-    Ok(())
 }
 
 fn balance<S: Storage, A: Api, Q: Querier>(
