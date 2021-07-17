@@ -1694,4 +1694,44 @@ mod tests {
             .unwrap();
         assert_eq!(user.shares, 0);
     }
+
+    #[test]
+    fn test_handle_set_pool_shares_token() {
+        let (_init_result, mut deps) = init_helper();
+
+        // = When pool shares token has not been set yet
+        // = * It sets the pool_shares_token
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        let handle_response_unwrapped = handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        let handle_response_data: ProfitDistributorHandleAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorHandleAnswer::SetPoolSharesToken { status: Success })
+                .unwrap()
+        );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.pool_shares_token.unwrap(), mock_pool_shares_token());
+        // == When pool shares token has already been set
+        // == * It raises an error
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        );
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::generic_err(format!("Pool shares token is already set."))
+        );
+    }
 }
