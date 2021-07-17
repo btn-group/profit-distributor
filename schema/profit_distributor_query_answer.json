@@ -71,7 +71,6 @@
             "admin",
             "buttcoin",
             "contract_address",
-            "pool_shares_token",
             "profit_tokens"
           ],
           "properties": {
@@ -85,7 +84,14 @@
               "$ref": "#/definitions/HumanAddr"
             },
             "pool_shares_token": {
-              "$ref": "#/definitions/SecretContract"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SecretContract"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "profit_tokens": {
               "type": "array",

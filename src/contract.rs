@@ -6,6 +6,7 @@ use crate::msg::{
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg,
 };
+use crate::pool_shares_token::{InitConfig, InitMsg};
 use crate::state::{
     Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
@@ -17,7 +18,7 @@ use cosmwasm_std::{
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
-use secret_toolkit::utils::{pad_handle_result, pad_query_result};
+use secret_toolkit::utils::{pad_handle_result, pad_query_result, InitCallback};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -32,11 +33,36 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         contract_address: env.contract.address.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
         profit_tokens: vec![],
-        pool_shares_token: msg.pool_shares_token.clone(),
+        pool_shares_token: None,
         total_shares: 0,
         viewing_key: msg.viewing_key.clone(),
     };
     config_store.store(CONFIG_KEY, &config)?;
+
+    // Initiate pool shares token for this contract
+    let pool_shares_token_init_config = InitConfig {
+        enable_deposit: None,
+        enable_redeem: None,
+        enable_burn: Some(true),
+        enable_mint: Some(true),
+        public_total_supply: Some(true),
+    };
+    let pool_shares_token_init_msg = InitMsg {
+        name: "btn-profit-distributor-share".to_string(),
+        admin: None,
+        symbol: "BTNPDS".to_string(),
+        decimals: 6,
+        initial_balances: None,
+        prng_seed: msg.prng_seed,
+        config: Some(pool_shares_token_init_config),
+    };
+    // Create contract label, get code id for ontract and the hash. Don't worry about the last input as that's to do with putting Secret tokens in there and there's no need for that.
+    let pool_shares_token_init_msg_as_cosmos_msg = pool_shares_token_init_msg.to_cosmos_msg(
+        msg.pool_shares_token_label,
+        msg.pool_shares_token_code_id,
+        msg.pool_shares_token_code_hash,
+        None,
+    )?;
 
     // https://github.com/enigmampc/secret-toolkit/tree/master/packages/snip20
     let messages = vec![
@@ -54,6 +80,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             msg.buttcoin.contract_hash,
             msg.buttcoin.address,
         )?,
+        pool_shares_token_init_msg_as_cosmos_msg,
     ];
 
     Ok(InitResponse {
@@ -74,6 +101,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
             create_viewing_key(deps, env, entropy, config.prng_seed)
         }
+        ProfitDistributorHandleMsg::SetPoolSharesToken { contract_hash } => {
+            set_pool_shares_token(deps, env, contract_hash)
+        }
         ProfitDistributorHandleMsg::SetViewingKey { key, .. } => set_viewing_key(deps, env, key),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
@@ -93,6 +123,33 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorQueryMsg::Pool { token_address } => public_pool(deps, token_address),
         _ => pad_query_result(authenticated_queries(deps, msg), RESPONSE_BLOCK_SIZE),
     }
+}
+
+fn set_pool_shares_token<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    contract_hash: String,
+) -> StdResult<HandleResponse> {
+    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    if config.pool_shares_token.is_some() {
+        return Err(StdError::generic_err(format!(
+            "Pool shares token is already set."
+        )));
+    }
+
+    config.pool_shares_token = Some(SecretContract {
+        address: env.message.sender,
+        contract_hash: contract_hash,
+    });
+    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(
+            &ProfitDistributorHandleAnswer::SetPoolSharesToken { status: Success },
+        )?),
+    })
 }
 
 fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
@@ -280,6 +337,14 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     amount: u128,
 ) -> StdResult<HandleResponse> {
     let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
+
+    if config.pool_shares_token.is_none() {
+        return Err(StdError::generic_err(format!(
+            "Pool shares token is not set."
+        )));
+    }
+
+    let pool_shares_token = config.pool_shares_token.clone().unwrap();
     authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
 
     let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
@@ -309,8 +374,8 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
         Uint128(amount),
         None,
         RESPONSE_BLOCK_SIZE,
-        config.pool_shares_token.contract_hash,
-        config.pool_shares_token.address,
+        pool_shares_token.contract_hash,
+        pool_shares_token.address,
     )?);
 
     Ok(HandleResponse {
@@ -417,8 +482,15 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     amount: u128,
 ) -> StdResult<HandleResponse> {
     let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    if config.pool_shares_token.is_none() {
+        return Err(StdError::generic_err(format!(
+            "Pool shares token is not set."
+        )));
+    }
+
+    let pool_shares_token = config.pool_shares_token.clone().unwrap();
     authorize(
-        config.pool_shares_token.address.clone(),
+        pool_shares_token.address.clone(),
         env.message.sender.clone(),
     )?;
 
@@ -456,8 +528,8 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
             Uint128(amount),
             None,
             RESPONSE_BLOCK_SIZE,
-            config.pool_shares_token.contract_hash,
-            config.pool_shares_token.address,
+            pool_shares_token.contract_hash,
+            pool_shares_token.address,
         )?);
 
         // Send buttcoin to user
@@ -497,11 +569,12 @@ mod tests {
         Extern<MockStorage, MockApi, MockQuerier>,
     ) {
         let env = mock_env(MOCK_ADMIN, &[]);
-        let pool_shares_token = mock_pool_shares_token();
         let mut deps = mock_dependencies(20, &[]);
         let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
-            pool_shares_token: pool_shares_token.clone(),
+            pool_shares_token_code_hash: "poolsharestookencodehash".to_string(),
+            pool_shares_token_code_id: 333,
+            pool_shares_token_label: "poolsharestookencodelabel".to_string(),
             prng_seed: Binary::from("some-prng-seed".as_bytes()),
             viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
         };
@@ -649,8 +722,18 @@ mod tests {
             _ => panic!("at the taco bell"),
         }
 
-        // === When shares added
-        // === * It doesn't affect the total added
+        // === When pool shares token set
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        // ==== When shares added
+        // ==== * It doesn't affect the total added
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: mock_pool_shares_token().address,
@@ -868,7 +951,17 @@ mod tests {
         assert_eq!(pool.per_share_scaled, 0);
         assert_eq!(pool.residue, amount.u128());
 
-        // === When there are shares
+        // === When pool shares token set
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        // ==== When there are shares
         let receive_deposit_buttcoin_msg = ProfitDistributorHandleMsg::Receive {
             amount: buttcoin_deposit_amount,
             from: from.clone(),
@@ -881,7 +974,7 @@ mod tests {
             receive_deposit_buttcoin_msg.clone(),
         )
         .unwrap();
-        // === * It calculates the per_share factoring in the new amount and the residue and resets the residue
+        // ==== * It calculates the per_share factoring in the new amount and the residue and resets the residue
         let handle_response = handle(
             &mut deps,
             mock_env(mock_buttcoin().address.to_string(), &[]),
@@ -896,7 +989,7 @@ mod tests {
             amount.u128() * 2 * CALCULATION_SCALE / buttcoin_deposit_amount.u128()
         );
         assert_eq!(pool.residue, 0);
-        // === When adding profit when shares exist and no residue
+        // ==== When adding profit when shares exist and no residue
         let handle_response = handle(
             &mut deps,
             mock_env(mock_buttcoin().address.to_string(), &[]),
@@ -918,7 +1011,16 @@ mod tests {
         let (_init_result, mut deps) = init_helper();
         let amount: Uint128 = Uint128(333);
         let from: HumanAddr = HumanAddr::from("someuser");
-
+        // When pool shares token set
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
         // = When received token is not Buttcoin
         // = * It raises an Unauthorized error
         let msg = ProfitDistributorHandleMsg::Receive {
@@ -1200,7 +1302,17 @@ mod tests {
         let amount: Uint128 = Uint128(333);
         let from: HumanAddr = HumanAddr::from("someuser");
 
-        // = When Buttcoin is deposited
+        // = When pool shares token set
+        let msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: mock_pool_shares_token().contract_hash,
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_pool_shares_token().address.to_string(), &[]),
+            msg.clone(),
+        )
+        .unwrap();
+        // == When Buttcoin is deposited
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
@@ -1213,7 +1325,7 @@ mod tests {
             msg.clone(),
         )
         .unwrap();
-        // == When profit token is added
+        // === When profit token is added
         let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
             token: mock_buttcoin(),
         };
@@ -1223,7 +1335,7 @@ mod tests {
             add_profit_token_msg.clone(),
         )
         .unwrap();
-        // === When more Buttcoin is added by the user
+        // ==== When more Buttcoin is added by the user
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
             from: from.clone(),
@@ -1236,7 +1348,7 @@ mod tests {
             msg.clone(),
         )
         .unwrap();
-        // === When profit is added
+        // ==== When profit is added
         let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
             amount: Uint128(amount.u128() * 4),
             from: from.clone(),
