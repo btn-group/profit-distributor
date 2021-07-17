@@ -6,6 +6,7 @@ use crate::msg::{
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg,
 };
+use crate::pool_shares_token::InitMsg;
 use crate::state::{
     Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
@@ -17,7 +18,7 @@ use cosmwasm_std::{
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
-use secret_toolkit::utils::{pad_handle_result, pad_query_result};
+use secret_toolkit::utils::{pad_handle_result, pad_query_result, InitCallback};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -37,6 +38,16 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         viewing_key: msg.viewing_key.clone(),
     };
     config_store.store(CONFIG_KEY, &config)?;
+
+    // Initiate pool shares token for this contract
+    let pool_shares_token_init_msg = InitMsg { count: 100 };
+    // Create contract label, get code id for ontract and the hash. Don't worry about the last input as that's to do with putting Secret tokens in there and there's no need for that.
+    let pool_shares_token_init_msg_as_cosmos_msg = pool_shares_token_init_msg.to_cosmos_msg(
+        "new_contract_label".to_string(),
+        123,
+        "CODE_HASH_OF_CONTRACT_YOU_WANT_TO_INSTANTIATE".to_string(),
+        None,
+    )?;
 
     // https://github.com/enigmampc/secret-toolkit/tree/master/packages/snip20
     let messages = vec![
