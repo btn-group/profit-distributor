@@ -99,6 +99,25 @@
     {
       "type": "object",
       "required": [
+        "set_pool_shares_token"
+      ],
+      "properties": {
+        "set_pool_shares_token": {
+          "type": "object",
+          "required": [
+            "contract_hash"
+          ],
+          "properties": {
+            "contract_hash": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "set_viewing_key"
       ],
       "properties": {

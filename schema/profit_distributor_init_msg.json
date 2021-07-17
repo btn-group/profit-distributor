@@ -4,7 +4,9 @@
   "type": "object",
   "required": [
     "buttcoin",
-    "pool_shares_token",
+    "pool_shares_token_code_hash",
+    "pool_shares_token_code_id",
+    "pool_shares_token_label",
     "prng_seed",
     "viewing_key"
   ],
@@ -12,8 +14,16 @@
     "buttcoin": {
       "$ref": "#/definitions/SecretContract"
     },
-    "pool_shares_token": {
-      "$ref": "#/definitions/SecretContract"
+    "pool_shares_token_code_hash": {
+      "type": "string"
+    },
+    "pool_shares_token_code_id": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "pool_shares_token_label": {
+      "type": "string"
     },
     "prng_seed": {
       "$ref": "#/definitions/Binary"

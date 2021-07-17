@@ -13,11 +13,6 @@ pub struct InitMsg {
     pub prng_seed: Binary,
     pub config: Option<InitConfig>,
 }
-impl InitMsg {
-    pub fn config(&self) -> InitConfig {
-        self.config.clone().unwrap_or_default()
-    }
-}
 impl InitCallback for InitMsg {
     const BLOCK_SIZE: usize = 256;
 }
@@ -36,39 +31,17 @@ pub struct InitialBalance {
 pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
     /// default: False
-    public_total_supply: Option<bool>,
+    pub public_total_supply: Option<bool>,
     /// Indicates whether deposit functionality should be enabled
     /// default: False
-    enable_deposit: Option<bool>,
+    pub enable_deposit: Option<bool>,
     /// Indicates whether redeem functionality should be enabled
     /// default: False
-    enable_redeem: Option<bool>,
+    pub enable_redeem: Option<bool>,
     /// Indicates whether mint functionality should be enabled
     /// default: False
-    enable_mint: Option<bool>,
+    pub enable_mint: Option<bool>,
     /// Indicates whether burn functionality should be enabled
     /// default: False
-    enable_burn: Option<bool>,
-}
-
-impl InitConfig {
-    pub fn public_total_supply(&self) -> bool {
-        self.public_total_supply.unwrap_or(false)
-    }
-
-    pub fn deposit_enabled(&self) -> bool {
-        self.enable_deposit.unwrap_or(false)
-    }
-
-    pub fn redeem_enabled(&self) -> bool {
-        self.enable_redeem.unwrap_or(false)
-    }
-
-    pub fn mint_enabled(&self) -> bool {
-        self.enable_mint.unwrap_or(false)
-    }
-
-    pub fn burn_enabled(&self) -> bool {
-        self.enable_burn.unwrap_or(false)
-    }
+    pub enable_burn: Option<bool>,
 }
