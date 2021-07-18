@@ -99,16 +99,26 @@
     {
       "type": "object",
       "required": [
-        "set_pool_shares_token"
+        "init_pool_shares_token"
       ],
       "properties": {
-        "set_pool_shares_token": {
+        "init_pool_shares_token": {
           "type": "object",
           "required": [
-            "contract_hash"
+            "code_hash",
+            "code_id",
+            "label"
           ],
           "properties": {
-            "contract_hash": {
+            "code_hash": {
+              "type": "string"
+            },
+            "code_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "label": {
               "type": "string"
             }
           }
@@ -135,6 +145,25 @@
                 "string",
                 "null"
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "set_pool_shares_token"
+      ],
+      "properties": {
+        "set_pool_shares_token": {
+          "type": "object",
+          "required": [
+            "token"
+          ],
+          "properties": {
+            "token": {
+              "$ref": "#/definitions/SecretContract"
             }
           }
         }
