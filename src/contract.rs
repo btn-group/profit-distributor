@@ -55,6 +55,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         initial_balances: None,
         prng_seed: msg.prng_seed,
         config: Some(pool_shares_token_init_config),
+        profit_distributor_contract_hash: env.contract_code_hash.clone(),
     };
     // Create contract label, get code id for ontract and the hash. Don't worry about the last input as that's to do with putting Secret tokens in there and there's no need for that.
     let pool_shares_token_init_msg_as_cosmos_msg = pool_shares_token_init_msg.to_cosmos_msg(
@@ -564,6 +565,7 @@ mod tests {
     pub const MOCK_ADMIN: &str = "admin";
 
     // === HELPERS ===
+
     fn init_helper() -> (
         StdResult<InitResponse>,
         Extern<MockStorage, MockApi, MockQuerier>,
@@ -576,7 +578,7 @@ mod tests {
             pool_shares_token_code_id: 333,
             pool_shares_token_label: "poolsharestookencodelabel".to_string(),
             prng_seed: Binary::from("some-prng-seed".as_bytes()),
-            viewing_key: "nannofromthegirlfromnowhereisathaidemon?".to_string(),
+            viewing_key: mock_viewing_key(),
         };
         (init(&mut deps, env.clone(), msg), deps)
     }
@@ -600,6 +602,69 @@ mod tests {
             address: HumanAddr::from("profit-token-address"),
             contract_hash: "profit-token-contract-hash".to_string(),
         }
+    }
+
+    fn mock_viewing_key() -> String {
+        "mock-viewing-key".to_string()
+    }
+
+    // === INIT TEST ===
+
+    #[test]
+    fn test_init() {
+        let (init_result, _deps) = init_helper();
+        let env = mock_env(MOCK_ADMIN, &[]);
+
+        let init_result_unwrapped = init_result.unwrap();
+        // Initiate pool shares token for this contract
+        let pool_shares_token_init_config = InitConfig {
+            enable_deposit: None,
+            enable_redeem: None,
+            enable_burn: Some(true),
+            enable_mint: Some(true),
+            public_total_supply: Some(true),
+        };
+        let pool_shares_token_init_msg = InitMsg {
+            name: "btn-profit-distributor-share".to_string(),
+            admin: None,
+            symbol: "BTNPDS".to_string(),
+            decimals: 6,
+            initial_balances: None,
+            prng_seed: Binary::from("some-prng-seed".as_bytes()),
+            config: Some(pool_shares_token_init_config),
+            profit_distributor_contract_hash: env.contract_code_hash.clone(),
+        };
+        // Create contract label, get code id for ontract and the hash. Don't worry about the last input as that's to do with putting Secret tokens in there and there's no need for that.
+        let pool_shares_token_init_msg_as_cosmos_msg = pool_shares_token_init_msg
+            .to_cosmos_msg(
+                "poolsharestookencodelabel".to_string(),
+                333,
+                "poolsharestookencodehash".to_string(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            init_result_unwrapped.messages,
+            vec![
+                snip20::register_receive_msg(
+                    env.contract_code_hash.clone(),
+                    None,
+                    1,
+                    mock_buttcoin().contract_hash.clone(),
+                    mock_buttcoin().address.clone(),
+                )
+                .unwrap(),
+                snip20::set_viewing_key_msg(
+                    mock_viewing_key(),
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    mock_buttcoin().contract_hash,
+                    mock_buttcoin().address,
+                )
+                .unwrap(),
+                pool_shares_token_init_msg_as_cosmos_msg,
+            ]
+        );
     }
 
     // === QUERY TESTS ===
