@@ -128,7 +128,7 @@ fn init_pool_shares_token<S: Storage, A: Api, Q: Querier>(
         public_total_supply: Some(true),
     };
     let pool_shares_token_init_msg = InitMsg {
-        name: "btn-profit-distributor-pool-shares-token".to_string(),
+        name: "btn-profit-distributor-pst".to_string(),
         admin: None,
         symbol: "BTNPDPST".to_string(),
         decimals: 6,
