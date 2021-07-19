@@ -592,9 +592,6 @@ mod tests {
         let mut deps = mock_dependencies(20, &[]);
         let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
-            pool_shares_token_code_hash: "poolsharestookencodehash".to_string(),
-            pool_shares_token_code_id: 333,
-            pool_shares_token_label: "poolsharestookencodelabel".to_string(),
             prng_seed: Binary::from("some-prng-seed".as_bytes()),
             viewing_key: mock_viewing_key(),
         };
