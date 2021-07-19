@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ProfitDistributorInitMsg {
     pub buttcoin: SecretContract,
-    pub pool_shares_token_code_hash: String,
-    pub pool_shares_token_code_id: u64,
-    pub pool_shares_token_label: String,
     pub prng_seed: Binary,
     pub viewing_key: String,
 }
