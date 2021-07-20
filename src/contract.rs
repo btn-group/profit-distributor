@@ -1,10 +1,9 @@
 use crate::authorize::authorize;
 use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE};
-use crate::msg::ProfitDistributorResponseStatus::Success;
 use crate::msg::{
     ProfitDistributorHandleAnswer, ProfitDistributorHandleMsg, ProfitDistributorInitMsg,
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
-    ProfitDistributorReceiveMsg,
+    ProfitDistributorReceiveMsg, ProfitDistributorResponseStatus::Success,
 };
 use crate::pool_shares_token::{InitConfig, InitMsg};
 use crate::state::{
@@ -576,6 +575,7 @@ mod tests {
     use super::*;
     use crate::msg::ProfitDistributorReceiveMsg;
     use crate::state::SecretContract;
+    use crate::viewing_key::ViewingKey;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::StdError::NotFound;
@@ -1846,5 +1846,82 @@ mod tests {
             handle_response.unwrap_err(),
             StdError::generic_err(format!("Pool shares token is already set."))
         );
+    }
+
+    #[test]
+    fn test_handle_create_viewing_key() {
+        let (init_result, mut deps) = init_helper();
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = ProfitDistributorHandleMsg::CreateViewingKey {
+            entropy: "".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let answer: ProfitDistributorHandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+
+        let key = match answer {
+            ProfitDistributorHandleAnswer::CreateViewingKey { key } => key,
+            _ => panic!("NOPE"),
+        };
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        assert!(key.check_viewing_key(saved_vk.as_slice()));
+    }
+
+    #[test]
+    fn test_handle_set_viewing_key() {
+        let (init_result, mut deps) = init_helper();
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Set VK
+        let handle_msg = ProfitDistributorHandleMsg::SetViewingKey {
+            key: "hi lol".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let unwrapped_result: ProfitDistributorHandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&ProfitDistributorHandleAnswer::SetViewingKey { status: Success }).unwrap(),
+        );
+
+        // Set valid VK
+        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_SIZE));
+        let handle_msg = ProfitDistributorHandleMsg::SetViewingKey {
+            key: actual_vk.0.clone(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let unwrapped_result: ProfitDistributorHandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&ProfitDistributorHandleAnswer::SetViewingKey { status: Success }).unwrap(),
+        );
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        assert!(actual_vk.check_viewing_key(&saved_vk));
     }
 }

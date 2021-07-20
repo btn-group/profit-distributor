@@ -54,7 +54,7 @@ pub enum ProfitDistributorHandleAnswer {
         status: ProfitDistributorResponseStatus,
     },
     CreateViewingKey {
-        status: ProfitDistributorResponseStatus,
+        key: ViewingKey,
     },
     InitPoolSharesToken {
         status: ProfitDistributorResponseStatus,

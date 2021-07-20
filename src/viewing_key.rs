@@ -67,13 +67,14 @@ pub fn create_viewing_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
     let mut vk_store = PrefixedStorage::new(VIEWING_KEY_STORAGE_KEY, &mut deps.storage);
-    vk_store.set(env.message.sender.0.as_bytes(), &key.to_hashed());
+    let user_canonical_address = deps.api.canonical_address(&env.message.sender)?;
+    vk_store.set(user_canonical_address.as_slice(), &key.to_hashed());
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
         data: Some(to_binary(
-            &ProfitDistributorHandleAnswer::CreateViewingKey { status: Success },
+            &ProfitDistributorHandleAnswer::CreateViewingKey { key: key },
         )?),
     })
 }
@@ -90,14 +91,15 @@ pub fn set_viewing_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey(key);
     let mut vk_store = PrefixedStorage::new(VIEWING_KEY_STORAGE_KEY, &mut deps.storage);
-    vk_store.set(env.message.sender.0.as_bytes(), &vk.to_hashed());
+    let user_canonical_address = deps.api.canonical_address(&env.message.sender)?;
+    vk_store.set(user_canonical_address.as_slice(), &vk.to_hashed());
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(
-            &ProfitDistributorHandleAnswer::CreateViewingKey { status: Success },
-        )?),
+        data: Some(to_binary(&ProfitDistributorHandleAnswer::SetViewingKey {
+            status: Success,
+        })?),
     })
 }
 
