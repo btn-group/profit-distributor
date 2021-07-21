@@ -158,11 +158,27 @@ fn set_pool_shares_token<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    config.pool_shares_token = Some(token);
+    config.pool_shares_token = Some(token.clone());
     TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
+    let messages = vec![
+        snip20::register_receive_msg(
+            env.contract_code_hash.clone(),
+            None,
+            1,
+            token.contract_hash.clone(),
+            token.address.clone(),
+        )?,
+        snip20::set_viewing_key_msg(
+            config.viewing_key,
+            None,
+            RESPONSE_BLOCK_SIZE,
+            token.contract_hash,
+            token.address,
+        )?,
+    ];
 
     Ok(HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(
             &ProfitDistributorHandleAnswer::SetPoolSharesToken { status: Success },
@@ -1825,10 +1841,32 @@ mod tests {
         );
         // == When called by admin
         // == * It sets the pool_shares_token
-        let handle_response_unwrapped =
-            handle(&mut deps, mock_env(MOCK_ADMIN, &[]), msg.clone()).unwrap();
+        let env = mock_env(MOCK_ADMIN, &[]);
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        let handle_response_unwrapped = handle(&mut deps, env.clone(), msg.clone()).unwrap();
         let handle_response_data: ProfitDistributorHandleAnswer =
             from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            handle_response_unwrapped.messages,
+            vec![
+                snip20::register_receive_msg(
+                    env.contract_code_hash.clone(),
+                    None,
+                    1,
+                    mock_pool_shares_token().contract_hash.clone(),
+                    mock_pool_shares_token().address.clone(),
+                )
+                .unwrap(),
+                snip20::set_viewing_key_msg(
+                    config.viewing_key,
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    mock_pool_shares_token().contract_hash,
+                    mock_pool_shares_token().address,
+                )
+                .unwrap(),
+            ],
+        );
         assert_eq!(
             to_binary(&handle_response_data).unwrap(),
             to_binary(&ProfitDistributorHandleAnswer::SetPoolSharesToken { status: Success })
