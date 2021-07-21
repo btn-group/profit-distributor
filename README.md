@@ -9,20 +9,21 @@ btn.group's profit distributor.
 The three pillars refers to blockchain itself but we are attempting to follow the ethos as much as possible.
 
 ### 1. Decentralization
-This contract has two admin only functions:
+This contract has a few admin functions
 1. Change admin.
-2. Register receivable profit token.
-
-Had to make registering of receivable profit tokens admin only, as someone could add a tonne of random tokens which would make the the contract unusable due to fees.
+2. Register receivable profit token - Had to make registering of receivable profit tokens admin only, as someone could add a tonne of random tokens which would make the contract unusable due to fees.
+3. Initialize the pool shares token - This is done via the smart contract so that the smart contract, not and user, to allow this smart contract to mint the shares token when a user depots Buttcoin.
+4. Set the pool shares token details into configuration. This can only be done one time so as to prevent any hack.
 
 ### 2. Transparency
 All involved smart contracts are publicly viewable and audited by third parties. 
 1. Buttcoin balance of contract is publicly viewable.
 2. The total raised for each profit cryptocurrency is publicly viewable.
 3. The balance for each profit token is publicly viewable.
+4. The balance for pool shares token is publicly viewable.
 
 ### 3. Immutability
-All tokens involved follow the SNIP-20 standard. The state of the smart contract cannot be changed by users/admin.
+This is secured by the Secret network.
 
 ## Regarding privacy
 We have thought long and hard about this and have decided to make many aspects public. This means that it would be pretty easy for someone to calculate who deposited how much.
