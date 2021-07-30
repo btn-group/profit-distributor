@@ -9,7 +9,6 @@ use crate::msg::{
 use crate::state::{
     Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
-use crate::viewing_key::{create_viewing_key, read_viewing_key, set_viewing_key, VIEWING_KEY_SIZE};
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
@@ -17,7 +16,7 @@ use cosmwasm_std::{
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
-use secret_toolkit::utils::{pad_handle_result, pad_query_result};
+use secret_toolkit::utils::pad_handle_result;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -69,11 +68,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let response = match msg {
         ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
-        ProfitDistributorHandleMsg::CreateViewingKey { entropy, .. } => {
-            let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-            create_viewing_key(deps, env, entropy, config.prng_seed)
-        }
-        ProfitDistributorHandleMsg::SetViewingKey { key, .. } => set_viewing_key(deps, env, key),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount.u128(), msg),
@@ -90,36 +84,12 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorQueryMsg::Balance { token } => balance(deps, token),
         ProfitDistributorQueryMsg::Config {} => public_config(deps),
         ProfitDistributorQueryMsg::Pool { token_address } => public_pool(deps, token_address),
-        _ => pad_query_result(authenticated_queries(deps, msg), RESPONSE_BLOCK_SIZE),
+        ProfitDistributorQueryMsg::ClaimableProfit {
+            token_address,
+            user_address,
+            ..
+        } => query_claimable_profit(deps, &token_address, &user_address),
     }
-}
-
-fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    msg: ProfitDistributorQueryMsg,
-) -> StdResult<Binary> {
-    let (address, key) = msg.get_validation_params();
-    let canonical_addr = deps.api.canonical_address(address)?;
-    let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
-
-    if expected_key.is_none() {
-        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
-        // in a way which will allow to time the command and determine if a viewing key doesn't exist
-        key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
-    } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return match msg {
-            ProfitDistributorQueryMsg::ClaimableProfit {
-                token_address,
-                user_address,
-                ..
-            } => query_claimable_profit(deps, &token_address, &user_address),
-            _ => panic!("This should never happen"),
-        };
-    }
-
-    Ok(to_binary(&ProfitDistributorQueryAnswer::QueryError {
-        msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-    })?)
 }
 
 fn claimable_profit(pool: Pool, pool_user: PoolUser, user: User) -> u128 {
@@ -287,7 +257,7 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
         .unwrap_or(User { shares: 0 });
     let shares_after_transaction: u128 = user.shares + amount;
 
-    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+    let messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
         &mut deps.storage,
         config.clone(),
         shares_after_transaction,
@@ -401,7 +371,7 @@ fn receive<S: Storage, A: Api, Q: Querier>(
 
 fn withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
+    _env: Env,
     from: HumanAddr,
     amount: u128,
 ) -> StdResult<HandleResponse> {
@@ -461,7 +431,6 @@ mod tests {
     use super::*;
     use crate::msg::ProfitDistributorReceiveMsg;
     use crate::state::SecretContract;
-    use crate::viewing_key::ViewingKey;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::StdError::NotFound;
@@ -1559,81 +1528,4 @@ mod tests {
     //         .unwrap();
     //     assert_eq!(user.shares, 0);
     // }
-
-    #[test]
-    fn test_handle_create_viewing_key() {
-        let (init_result, mut deps) = init_helper();
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = ProfitDistributorHandleMsg::CreateViewingKey {
-            entropy: "".to_string(),
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-        let answer: ProfitDistributorHandleAnswer =
-            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-
-        let key = match answer {
-            ProfitDistributorHandleAnswer::CreateViewingKey { key } => key,
-            _ => panic!("NOPE"),
-        };
-        let bob_canonical = deps
-            .api
-            .canonical_address(&HumanAddr("bob".to_string()))
-            .unwrap();
-        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
-        assert!(key.check_viewing_key(saved_vk.as_slice()));
-    }
-
-    #[test]
-    fn test_handle_set_viewing_key() {
-        let (init_result, mut deps) = init_helper();
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        // Set VK
-        let handle_msg = ProfitDistributorHandleMsg::SetViewingKey {
-            key: "hi lol".to_string(),
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        let unwrapped_result: ProfitDistributorHandleAnswer =
-            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&unwrapped_result).unwrap(),
-            to_binary(&ProfitDistributorHandleAnswer::SetViewingKey { status: Success }).unwrap(),
-        );
-
-        // Set valid VK
-        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_SIZE));
-        let handle_msg = ProfitDistributorHandleMsg::SetViewingKey {
-            key: actual_vk.0.clone(),
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        let unwrapped_result: ProfitDistributorHandleAnswer =
-            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&unwrapped_result).unwrap(),
-            to_binary(&ProfitDistributorHandleAnswer::SetViewingKey { status: Success }).unwrap(),
-        );
-        let bob_canonical = deps
-            .api
-            .canonical_address(&HumanAddr("bob".to_string()))
-            .unwrap();
-        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
-        assert!(actual_vk.check_viewing_key(&saved_vk));
-    }
 }
