@@ -99,35 +99,6 @@
     {
       "type": "object",
       "required": [
-        "init_pool_shares_token"
-      ],
-      "properties": {
-        "init_pool_shares_token": {
-          "type": "object",
-          "required": [
-            "code_hash",
-            "code_id",
-            "label"
-          ],
-          "properties": {
-            "code_hash": {
-              "type": "string"
-            },
-            "code_id": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "label": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "set_viewing_key"
       ],
       "properties": {

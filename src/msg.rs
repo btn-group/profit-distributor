@@ -30,11 +30,6 @@ pub enum ProfitDistributorHandleMsg {
         amount: Uint128,
         msg: Binary,
     },
-    InitPoolSharesToken {
-        code_hash: String,
-        code_id: u64,
-        label: String,
-    },
     SetViewingKey {
         key: String,
         padding: Option<String>,
@@ -55,9 +50,6 @@ pub enum ProfitDistributorHandleAnswer {
     },
     CreateViewingKey {
         key: ViewingKey,
-    },
-    InitPoolSharesToken {
-        status: ProfitDistributorResponseStatus,
     },
     SetPoolSharesToken {
         status: ProfitDistributorResponseStatus,
