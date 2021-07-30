@@ -5,7 +5,7 @@ use crate::msg::{
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg, ProfitDistributorResponseStatus::Success,
 };
-use crate::pool_shares_token::{InitConfig, InitMsg};
+
 use crate::state::{
     Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
@@ -17,7 +17,7 @@ use cosmwasm_std::{
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
-use secret_toolkit::utils::{pad_handle_result, pad_query_result, InitCallback};
+use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -74,11 +74,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
             create_viewing_key(deps, env, entropy, config.prng_seed)
         }
-        ProfitDistributorHandleMsg::InitPoolSharesToken {
-            code_hash,
-            code_id,
-            label,
-        } => init_pool_shares_token(deps, env, code_hash, code_id, label),
         ProfitDistributorHandleMsg::SetPoolSharesToken { token } => {
             set_pool_shares_token(deps, env, token)
         }
@@ -101,48 +96,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorQueryMsg::Pool { token_address } => public_pool(deps, token_address),
         _ => pad_query_result(authenticated_queries(deps, msg), RESPONSE_BLOCK_SIZE),
     }
-}
-
-fn init_pool_shares_token<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    env: Env,
-    code_hash: String,
-    code_id: u64,
-    label: String,
-) -> StdResult<HandleResponse> {
-    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    authorize(config.admin.clone(), env.message.sender)?;
-    if config.pool_shares_token.is_some() {
-        return Err(StdError::generic_err(format!(
-            "Pool shares token is already set."
-        )));
-    }
-
-    // Initiate pool shares token for this contract
-    let pool_shares_token_init_config = InitConfig {
-        enable_deposit: None,
-        enable_redeem: None,
-        enable_burn: Some(true),
-        enable_mint: Some(true),
-        public_total_supply: Some(true),
-    };
-    let pool_shares_token_init_msg = InitMsg {
-        name: "btn-profit-distributor-shares".to_string(),
-        admin: None,
-        symbol: "BTNPDS".to_string(),
-        decimals: 6,
-        initial_balances: None,
-        prng_seed: to_binary(&config.prng_seed)?,
-        config: Some(pool_shares_token_init_config),
-    };
-
-    Ok(HandleResponse {
-        messages: vec![pool_shares_token_init_msg.to_cosmos_msg(label, code_id, code_hash, None)?],
-        log: vec![],
-        data: Some(to_binary(
-            &ProfitDistributorHandleAnswer::InitPoolSharesToken { status: Success },
-        )?),
-    })
 }
 
 fn set_pool_shares_token<S: Storage, A: Api, Q: Querier>(
@@ -1741,84 +1694,6 @@ mod tests {
             .load(from_two.0.as_bytes())
             .unwrap();
         assert_eq!(user.shares, 0);
-    }
-
-    #[test]
-    fn test_handle_init_pool_shares_token() {
-        let (_init_result, mut deps) = init_helper();
-        let msg = ProfitDistributorHandleMsg::InitPoolSharesToken {
-            code_hash: "CodeHashOfPoolSharesToken".to_string(),
-            code_id: 1,
-            label: "btn-pool-shares-token".to_string(),
-        };
-        // = When pool shares token has not been set yet
-        // == When not called by admin
-        // == * It raises an error
-        let handle_response = handle(
-            &mut deps,
-            mock_env(mock_buttcoin().address, &[]),
-            msg.clone(),
-        );
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::Unauthorized { backtrace: None },
-        );
-        // == When called by admin
-        // == * It sets the pool_shares_token
-        let handle_response_unwrapped =
-            handle(&mut deps, mock_env(MOCK_ADMIN, &[]), msg.clone()).unwrap();
-        let handle_response_data: ProfitDistributorHandleAnswer =
-            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&handle_response_data).unwrap(),
-            to_binary(&ProfitDistributorHandleAnswer::InitPoolSharesToken { status: Success })
-                .unwrap()
-        );
-        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-        let pool_shares_token_init_config = InitConfig {
-            enable_deposit: None,
-            enable_redeem: None,
-            enable_burn: Some(true),
-            enable_mint: Some(true),
-            public_total_supply: Some(true),
-        };
-        let pool_shares_token_init_msg = InitMsg {
-            name: "btn-profit-distributor-shares".to_string(),
-            admin: None,
-            symbol: "BTNPDS".to_string(),
-            decimals: 6,
-            initial_balances: None,
-            prng_seed: to_binary(&config.prng_seed).unwrap(),
-            config: Some(pool_shares_token_init_config),
-        };
-        assert_eq!(
-            handle_response_unwrapped.messages,
-            vec![pool_shares_token_init_msg
-                .to_cosmos_msg(
-                    "btn-pool-shares-token".to_string(),
-                    1,
-                    "CodeHashOfPoolSharesToken".to_string(),
-                    None
-                )
-                .unwrap()],
-        );
-
-        // === When pool shares token has already been set
-        // === * It raises an error
-        let set_pool_shares_token_msg = ProfitDistributorHandleMsg::SetPoolSharesToken {
-            token: mock_pool_shares_token(),
-        };
-        handle(
-            &mut deps,
-            mock_env(MOCK_ADMIN, &[]),
-            set_pool_shares_token_msg,
-        )
-        .unwrap();
-        let handle_response = handle(&mut deps, mock_env(MOCK_ADMIN, &[]), msg);
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::generic_err(format!("Pool shares token is already set."))
-        );
     }
 
     #[test]
