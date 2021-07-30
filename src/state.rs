@@ -11,7 +11,6 @@ pub struct Config {
     pub buttcoin: SecretContract,
     pub contract_address: HumanAddr,
     pub prng_seed: Vec<u8>,
-    pub pool_shares_token: Option<SecretContract>,
     pub profit_tokens: Vec<SecretContract>,
     pub total_shares: u128,
     pub viewing_key: String,

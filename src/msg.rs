@@ -34,9 +34,6 @@ pub enum ProfitDistributorHandleMsg {
         key: String,
         padding: Option<String>,
     },
-    SetPoolSharesToken {
-        token: SecretContract,
-    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -50,9 +47,6 @@ pub enum ProfitDistributorHandleAnswer {
     },
     CreateViewingKey {
         key: ViewingKey,
-    },
-    SetPoolSharesToken {
-        status: ProfitDistributorResponseStatus,
     },
     SetViewingKey {
         status: ProfitDistributorResponseStatus,
@@ -102,7 +96,6 @@ pub enum ProfitDistributorQueryAnswer {
         admin: HumanAddr,
         buttcoin: SecretContract,
         contract_address: HumanAddr,
-        pool_shares_token: Option<SecretContract>,
         profit_tokens: Vec<SecretContract>,
     },
 

@@ -2,7 +2,6 @@ mod authorize;
 mod constants;
 pub mod contract;
 pub mod msg;
-mod pool_shares_token;
 pub mod state;
 pub mod viewing_key;
 
