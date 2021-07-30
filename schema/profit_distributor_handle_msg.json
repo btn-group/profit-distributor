@@ -120,25 +120,6 @@
           }
         }
       }
-    },
-    {
-      "type": "object",
-      "required": [
-        "set_pool_shares_token"
-      ],
-      "properties": {
-        "set_pool_shares_token": {
-          "type": "object",
-          "required": [
-            "token"
-          ],
-          "properties": {
-            "token": {
-              "$ref": "#/definitions/SecretContract"
-            }
-          }
-        }
-      }
     }
   ],
   "definitions": {

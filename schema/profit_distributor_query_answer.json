@@ -83,16 +83,6 @@
             "contract_address": {
               "$ref": "#/definitions/HumanAddr"
             },
-            "pool_shares_token": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/SecretContract"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "profit_tokens": {
               "type": "array",
               "items": {
