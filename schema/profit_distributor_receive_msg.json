@@ -23,17 +23,6 @@
           "type": "object"
         }
       }
-    },
-    {
-      "type": "object",
-      "required": [
-        "withdraw"
-      ],
-      "properties": {
-        "withdraw": {
-          "type": "object"
-        }
-      }
     }
   ]
 }

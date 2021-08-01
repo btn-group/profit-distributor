@@ -25,6 +25,9 @@ pub enum ProfitDistributorHandleMsg {
         amount: Uint128,
         msg: Binary,
     },
+    Withdraw {
+        amount: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -34,6 +37,9 @@ pub enum ProfitDistributorHandleAnswer {
         status: ProfitDistributorResponseStatus,
     },
     ChangeAdmin {
+        status: ProfitDistributorResponseStatus,
+    },
+    Withdraw {
         status: ProfitDistributorResponseStatus,
     },
 }
@@ -84,7 +90,6 @@ pub enum ProfitDistributorQueryAnswer {
 pub enum ProfitDistributorReceiveMsg {
     AddProfit {},
     DepositButtcoin {},
-    Withdraw {},
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -94,9 +99,6 @@ pub enum ProfitDistributorReceiveAnswer {
         status: ProfitDistributorResponseStatus,
     },
     DepositButtcoin {
-        status: ProfitDistributorResponseStatus,
-    },
-    Withdraw {
         status: ProfitDistributorResponseStatus,
     },
 }

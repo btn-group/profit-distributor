@@ -33,3 +33,6 @@ We thought about a centralized option where we only hold the viewing keys and sh
 The point of blockchain is to be decentralized and trustless. One scam I can think of off the top of my head would be to inflate our numbers so as to attract more investors.
 
 We think privacy is important, but it should be privacy for individuals and transparency for organizations.
+
+###  Why we implemented then removed the pool shares token
+The only reason we implemented a pool shares token was so that it could be used for users that deposited Buttcoin into this contract to still be able to vote. With what's going on in the world and from what I've seen in other crypto protocols, governance is a total sham. It's being used to look like there is a democratic proccess to disguise clear and present nepotism. Blockchain was created to counter this sort of thing. "Code is law" is the ethos. If there was ever to be a democrating process, it must be based on one vote per person. I understand that democracy amongst share holders is different, but I don't like how this false democracy is being portrayed to users. We are going to stick to immutable code as was intended.
