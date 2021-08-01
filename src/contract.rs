@@ -884,261 +884,228 @@ mod tests {
         assert_eq!(pool.residue, 0);
     }
 
-    // #[test]
-    // fn test_handle_receive_deposit_buttcoin() {
-    //     let (_init_result, mut deps) = init_helper();
-    //     let amount: Uint128 = Uint128(333);
-    //     let from: HumanAddr = HumanAddr::from("someuser");
-    //     // = When received token is not Buttcoin
-    //     // = * It raises an Unauthorized error
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_pool_shares_token().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     assert_eq!(
-    //         handle_response.unwrap_err(),
-    //         StdError::Unauthorized { backtrace: None }
-    //     );
+    #[test]
+    fn test_handle_receive_deposit_buttcoin() {
+        let (_init_result, mut deps) = init_helper();
+        let amount: Uint128 = Uint128(333);
+        let from: HumanAddr = HumanAddr::from("someuser");
+        // = When received token is not Buttcoin
+        // = * It raises an Unauthorized error
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_profit_token().address.to_string(), &[]),
+            msg.clone(),
+        );
+        assert_eq!(
+            handle_response.unwrap_err(),
+            StdError::Unauthorized { backtrace: None }
+        );
 
-    //     // = When received token is Buttcoin
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     // = * It mints the shares tokens to the user depositer
-    //     let handle_response_unwrapped = handle_response.unwrap();
-    //     let handle_response_data: ProfitDistributorReceiveAnswer =
-    //         from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-    //     assert_eq!(
-    //         to_binary(&handle_response_data).unwrap(),
-    //         to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-    //             .unwrap()
-    //     );
+        // = When received token is Buttcoin
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // = * It mints the shares tokens to the user depositer
+        let handle_response_unwrapped = handle_response.unwrap();
+        let handle_response_data: ProfitDistributorReceiveAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
+                .unwrap()
+        );
 
-    //     // = * It adds amount to user and total shares
-    //     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-    //     assert_eq!(config.total_shares, amount.u128());
-    //     let user: User = TypedStore::attach(&deps.storage)
-    //         .load(from.0.as_bytes())
-    //         .unwrap();
-    //     assert_eq!(user.shares, amount.u128());
-    //     // == When profit token is added
-    //     let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
-    //         token: mock_buttcoin(),
-    //     };
-    //     handle(
-    //         &mut deps,
-    //         mock_env(MOCK_ADMIN, &[]),
-    //         add_profit_token_msg.clone(),
-    //     )
-    //     .unwrap();
-    //     // === When more Buttcoin is added by the user
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     // === * It add to user shares, total shares and mints more share tokens for user
-    //     let handle_response_unwrapped = handle_response.unwrap();
-    //     let handle_response_data: ProfitDistributorReceiveAnswer =
-    //         from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-    //     assert_eq!(
-    //         to_binary(&handle_response_data).unwrap(),
-    //         to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-    //             .unwrap()
-    //     );
+        // = * It adds amount to user and total shares
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, amount.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, amount.u128());
+        // == When profit token is added
+        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
+            token: mock_buttcoin(),
+        };
+        handle(
+            &mut deps,
+            mock_env(MOCK_ADMIN, &[]),
+            add_profit_token_msg.clone(),
+        )
+        .unwrap();
+        // === When more Buttcoin is added by the user
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // === * It add to user shares, total shares and mints more share tokens for user
+        let handle_response_unwrapped = handle_response.unwrap();
+        let handle_response_data: ProfitDistributorReceiveAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
+                .unwrap()
+        );
 
-    //     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-    //     assert_eq!(config.total_shares, 2 * amount.u128());
-    //     let user: User = TypedStore::attach(&deps.storage)
-    //         .load(from.0.as_bytes())
-    //         .unwrap();
-    //     assert_eq!(user.shares, 2 * amount.u128());
-    //     // === When profit is added
-    //     let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: Uint128(amount.u128() * 4),
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
-    //     };
-    //     handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address, &[]),
-    //         receive_add_profit_msg.clone(),
-    //     )
-    //     .unwrap();
-    //     // ==== When more Buttcoin is added by the user
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     // ==== * It add to user shares, total shares, mints more share tokens for user and sends reward to user
-    //     let handle_response_unwrapped = handle_response.unwrap();
-    //     assert_eq!(
-    //         handle_response_unwrapped.messages,
-    //         vec![
-    //             secret_toolkit::snip20::transfer_msg(
-    //                 from.clone(),
-    //                 Uint128(amount.u128() * 4),
-    //                 None,
-    //                 RESPONSE_BLOCK_SIZE,
-    //                 mock_buttcoin().contract_hash,
-    //                 mock_buttcoin().address.clone(),
-    //             )
-    //             .unwrap(),
-    //             snip20::mint_msg(
-    //                 from.clone(),
-    //                 amount,
-    //                 None,
-    //                 RESPONSE_BLOCK_SIZE,
-    //                 mock_pool_shares_token().contract_hash,
-    //                 mock_pool_shares_token().address,
-    //             )
-    //             .unwrap(),
-    //         ]
-    //     );
-    //     let handle_response_data: ProfitDistributorReceiveAnswer =
-    //         from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-    //     assert_eq!(
-    //         to_binary(&handle_response_data).unwrap(),
-    //         to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-    //             .unwrap()
-    //     );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 2 * amount.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, 2 * amount.u128());
+        // === When profit is added
+        let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(amount.u128() * 4),
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address, &[]),
+            receive_add_profit_msg.clone(),
+        )
+        .unwrap();
+        // ==== When more Buttcoin is added by the user
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // ==== * It add to user shares and total shares tokens for user and sends reward to user
+        let handle_response_unwrapped = handle_response.unwrap();
+        assert_eq!(
+            handle_response_unwrapped.messages,
+            vec![secret_toolkit::snip20::transfer_msg(
+                from.clone(),
+                Uint128(amount.u128() * 4),
+                None,
+                RESPONSE_BLOCK_SIZE,
+                mock_buttcoin().contract_hash,
+                mock_buttcoin().address.clone(),
+            )
+            .unwrap(),]
+        );
+        let handle_response_data: ProfitDistributorReceiveAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
+                .unwrap()
+        );
 
-    //     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-    //     assert_eq!(config.total_shares, 3 * amount.u128());
-    //     let user: User = TypedStore::attach(&deps.storage)
-    //         .load(from.0.as_bytes())
-    //         .unwrap();
-    //     assert_eq!(user.shares, 3 * amount.u128());
-    //     // ==== * It sets the correct PoolUser debt
-    //     let buttcoin_pool_user: PoolUser =
-    //         PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
-    //             .get(from.clone())
-    //             .unwrap();
-    //     assert_eq!(
-    //         buttcoin_pool_user.debt,
-    //         user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
-    //     );
-    //     // ===== When more Buttcoin is added by the user
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     // ===== * It add to user shares, total shares, mints more share tokens for user (But does not send any reward tokens to user)
-    //     let handle_response_unwrapped = handle_response.unwrap();
-    //     assert_eq!(
-    //         handle_response_unwrapped.messages,
-    //         vec![snip20::mint_msg(
-    //             from.clone(),
-    //             amount,
-    //             None,
-    //             RESPONSE_BLOCK_SIZE,
-    //             mock_pool_shares_token().contract_hash,
-    //             mock_pool_shares_token().address,
-    //         )
-    //         .unwrap(),]
-    //     );
-    //     let handle_response_data: ProfitDistributorReceiveAnswer =
-    //         from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-    //     assert_eq!(
-    //         to_binary(&handle_response_data).unwrap(),
-    //         to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-    //             .unwrap()
-    //     );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 3 * amount.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, 3 * amount.u128());
+        // ==== * It sets the correct PoolUser debt
+        let buttcoin_pool_user: PoolUser =
+            PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
+                .get(from.clone())
+                .unwrap();
+        assert_eq!(
+            buttcoin_pool_user.debt,
+            user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
+        );
+        // ===== When more Buttcoin is added by the user
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // ===== * It add to user shares and total shares (But does not send any reward tokens to user)
+        let handle_response_unwrapped = handle_response.unwrap();
+        assert_eq!(handle_response_unwrapped.messages, vec![]);
+        let handle_response_data: ProfitDistributorReceiveAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
+                .unwrap()
+        );
 
-    //     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-    //     assert_eq!(config.total_shares, 4 * amount.u128());
-    //     let user: User = TypedStore::attach(&deps.storage)
-    //         .load(from.0.as_bytes())
-    //         .unwrap();
-    //     assert_eq!(user.shares, 4 * amount.u128());
-    //     // ===== * It sets the correct PoolUser debt
-    //     let buttcoin_pool_user: PoolUser =
-    //         PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
-    //             .get(from.clone())
-    //             .unwrap();
-    //     assert_eq!(
-    //         buttcoin_pool_user.debt,
-    //         user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
-    //     );
-    //     // ====== When Buttcoin is added by anothe user
-    //     let from: HumanAddr = HumanAddr::from("user-two");
-    //     let amount_two: Uint128 = Uint128(65404);
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount_two,
-    //         from: from.clone(),
-    //         sender: from.clone(),
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     let handle_response = handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     );
-    //     // ====== * It add to user shares, total shares, mints more share tokens for user (But does not send any reward tokens to user)
-    //     let handle_response_unwrapped = handle_response.unwrap();
-    //     assert_eq!(
-    //         handle_response_unwrapped.messages,
-    //         vec![snip20::mint_msg(
-    //             from.clone(),
-    //             amount_two,
-    //             None,
-    //             RESPONSE_BLOCK_SIZE,
-    //             mock_pool_shares_token().contract_hash,
-    //             mock_pool_shares_token().address,
-    //         )
-    //         .unwrap(),]
-    //     );
-    //     let handle_response_data: ProfitDistributorReceiveAnswer =
-    //         from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-    //     assert_eq!(
-    //         to_binary(&handle_response_data).unwrap(),
-    //         to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-    //             .unwrap()
-    //     );
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 4 * amount.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, 4 * amount.u128());
+        // ===== * It sets the correct PoolUser debt
+        let buttcoin_pool_user: PoolUser =
+            PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
+                .get(from.clone())
+                .unwrap();
+        assert_eq!(
+            buttcoin_pool_user.debt,
+            user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
+        );
+        // ====== When Buttcoin is added by anothe user
+        let from: HumanAddr = HumanAddr::from("user-two");
+        let amount_two: Uint128 = Uint128(65404);
+        let msg = ProfitDistributorHandleMsg::Receive {
+            amount: amount_two,
+            from: from.clone(),
+            sender: from.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        let handle_response = handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            msg.clone(),
+        );
+        // ====== * It add to user shares, total shares, mints more share tokens for user (But does not send any reward tokens to user)
+        let handle_response_unwrapped = handle_response.unwrap();
+        assert_eq!(handle_response_unwrapped.messages, vec![]);
+        let handle_response_data: ProfitDistributorReceiveAnswer =
+            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&handle_response_data).unwrap(),
+            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
+                .unwrap()
+        );
 
-    //     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-    //     assert_eq!(config.total_shares, 4 * amount.u128() + amount_two.u128());
-    //     let user: User = TypedStore::attach(&deps.storage)
-    //         .load(from.0.as_bytes())
-    //         .unwrap();
-    //     assert_eq!(user.shares, amount_two.u128());
-    // }
+        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
+        assert_eq!(config.total_shares, 4 * amount.u128() + amount_two.u128());
+        let user: User = TypedStore::attach(&deps.storage)
+            .load(from.0.as_bytes())
+            .unwrap();
+        assert_eq!(user.shares, amount_two.u128());
+    }
 
     // #[test]
     // fn test_handle_receive_withdraw() {
