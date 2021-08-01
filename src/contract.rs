@@ -16,7 +16,6 @@ use cosmwasm_std::{
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
-use secret_toolkit::utils::pad_handle_result;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -65,16 +64,14 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: ProfitDistributorHandleMsg,
 ) -> StdResult<HandleResponse> {
-    let response = match msg {
+    match msg {
         ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount.u128(), msg),
         ProfitDistributorHandleMsg::Withdraw { amount } => withdraw(deps, env, amount),
-    };
-
-    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
+    }
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(
