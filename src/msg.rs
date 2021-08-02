@@ -47,9 +47,6 @@ pub enum ProfitDistributorHandleAnswer {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorQueryMsg {
-    Balance {
-        token: SecretContract,
-    },
     Config {},
     ClaimableProfit {
         token_address: HumanAddr,
@@ -61,9 +58,6 @@ pub enum ProfitDistributorQueryMsg {
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorQueryAnswer {
-    Balance {
-        amount: Uint128,
-    },
     ClaimableProfit {
         amount: Uint128,
     },
