@@ -5,25 +5,6 @@
     {
       "type": "object",
       "required": [
-        "balance"
-      ],
-      "properties": {
-        "balance": {
-          "type": "object",
-          "required": [
-            "token"
-          ],
-          "properties": {
-            "token": {
-              "$ref": "#/definitions/SecretContract"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "config"
       ],
       "properties": {
@@ -63,21 +44,6 @@
   "definitions": {
     "HumanAddr": {
       "type": "string"
-    },
-    "SecretContract": {
-      "type": "object",
-      "required": [
-        "address",
-        "contract_hash"
-      ],
-      "properties": {
-        "address": {
-          "$ref": "#/definitions/HumanAddr"
-        },
-        "contract_hash": {
-          "type": "string"
-        }
-      }
     }
   }
 }

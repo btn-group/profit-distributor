@@ -79,7 +79,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: ProfitDistributorQueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        ProfitDistributorQueryMsg::Balance { token } => balance(deps, token),
         ProfitDistributorQueryMsg::Config {} => public_config(deps),
         ProfitDistributorQueryMsg::ClaimableProfit {
             token_address,
@@ -195,25 +194,6 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
         data: Some(to_binary(&ProfitDistributorHandleAnswer::AddProfitToken {
             status: Success,
         })?),
-    })
-}
-
-fn balance<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    token: SecretContract,
-) -> StdResult<Binary> {
-    let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
-    let balance = snip20::balance_query(
-        &deps.querier,
-        config.contract_address,
-        config.viewing_key,
-        RESPONSE_BLOCK_SIZE,
-        token.contract_hash,
-        token.address,
-    )?;
-
-    to_binary(&ProfitDistributorQueryAnswer::Balance {
-        amount: balance.amount,
     })
 }
 
