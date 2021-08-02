@@ -43,25 +43,6 @@
     {
       "type": "object",
       "required": [
-        "pool"
-      ],
-      "properties": {
-        "pool": {
-          "type": "object",
-          "required": [
-            "total_added"
-          ],
-          "properties": {
-            "total_added": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "config"
       ],
       "properties": {

@@ -51,9 +51,6 @@ pub enum ProfitDistributorQueryMsg {
         token: SecretContract,
     },
     Config {},
-    Pool {
-        token_address: HumanAddr,
-    },
     ClaimableProfit {
         token_address: HumanAddr,
         user_address: HumanAddr,
@@ -69,9 +66,6 @@ pub enum ProfitDistributorQueryAnswer {
     },
     ClaimableProfit {
         amount: Uint128,
-    },
-    Pool {
-        total_added: Uint128,
     },
     Config {
         admin: HumanAddr,

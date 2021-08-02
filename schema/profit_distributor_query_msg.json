@@ -35,25 +35,6 @@
     {
       "type": "object",
       "required": [
-        "pool"
-      ],
-      "properties": {
-        "pool": {
-          "type": "object",
-          "required": [
-            "token_address"
-          ],
-          "properties": {
-            "token_address": {
-              "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "claimable_profit"
       ],
       "properties": {
