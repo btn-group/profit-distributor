@@ -81,7 +81,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     match msg {
         ProfitDistributorQueryMsg::Balance { token } => balance(deps, token),
         ProfitDistributorQueryMsg::Config {} => public_config(deps),
-        ProfitDistributorQueryMsg::Pool { token_address } => public_pool(deps, token_address),
         ProfitDistributorQueryMsg::ClaimableProfit {
             token_address,
             user_address,
@@ -138,7 +137,6 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
                 (amount + pool.residue) * CALCULATION_SCALE / config.total_shares;
             pool.residue = 0;
         };
-        pool.total_added += amount;
         TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
     }
 
@@ -173,7 +171,6 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
         &Pool {
             per_share_scaled: 0,
             residue: 0,
-            total_added: 0,
         },
     )?;
 
@@ -335,17 +332,6 @@ fn public_config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdR
         buttcoin: config.buttcoin,
         contract_address: config.contract_address,
         profit_tokens: config.profit_tokens,
-    })
-}
-
-fn public_pool<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    token_address: HumanAddr,
-) -> StdResult<Binary> {
-    let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
-
-    to_binary(&ProfitDistributorQueryAnswer::Pool {
-        total_added: Uint128(pool.total_added),
     })
 }
 
@@ -557,97 +543,6 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_public_pool() {
-    //     let (_init_result, mut deps) = init_helper();
-    //     let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
-    //         token: mock_buttcoin(),
-    //     };
-    //     let amount: Uint128 = Uint128(123);
-
-    //     handle(
-    //         &mut deps,
-    //         mock_env(MOCK_ADMIN, &[]),
-    //         add_profit_token_msg.clone(),
-    //     )
-    //     .unwrap();
-
-    //     // = When no profit has been added
-    //     // = * It returns a zero value
-    //     let res = query(
-    //         &deps,
-    //         ProfitDistributorQueryMsg::Pool {
-    //             token_address: mock_buttcoin().address,
-    //         },
-    //     )
-    //     .unwrap();
-    //     let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
-    //     match value {
-    //         ProfitDistributorQueryAnswer::Pool { total_added } => {
-    //             assert_eq!(total_added, Uint128(0));
-    //         }
-    //         _ => panic!("at the taco bell"),
-    //     }
-
-    //     // == When profit has been added
-    //     // == * It returns the total added
-    //     let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: mock_buttcoin().address,
-    //         sender: mock_buttcoin().address,
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::AddProfit {}).unwrap(),
-    //     };
-    //     handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         receive_add_profit_msg.clone(),
-    //     )
-    //     .unwrap();
-    //     let res = query(
-    //         &deps,
-    //         ProfitDistributorQueryMsg::Pool {
-    //             token_address: mock_buttcoin().address,
-    //         },
-    //     )
-    //     .unwrap();
-    //     let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
-    //     match value {
-    //         ProfitDistributorQueryAnswer::Pool { total_added } => {
-    //             assert_eq!(total_added, amount);
-    //         }
-    //         _ => panic!("at the taco bell"),
-    //     }
-
-    //     // ==== When shares added
-    //     // ==== * It doesn't affect the total added
-    //     let msg = ProfitDistributorHandleMsg::Receive {
-    //         amount: amount,
-    //         from: mock_pool_shares_token().address,
-    //         sender: mock_pool_shares_token().address,
-    //         msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
-    //     };
-    //     handle(
-    //         &mut deps,
-    //         mock_env(mock_buttcoin().address.to_string(), &[]),
-    //         msg.clone(),
-    //     )
-    //     .unwrap();
-    //     let res = query(
-    //         &deps,
-    //         ProfitDistributorQueryMsg::Pool {
-    //             token_address: mock_buttcoin().address,
-    //         },
-    //     )
-    //     .unwrap();
-    //     let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
-    //     match value {
-    //         ProfitDistributorQueryAnswer::Pool { total_added } => {
-    //             assert_eq!(total_added, amount);
-    //         }
-    //         _ => panic!("at the taco bell"),
-    //     }
-    // }
-
     // === HANDLE TESTS ===
 
     #[test]
@@ -714,7 +609,6 @@ mod tests {
             Pool {
                 per_share_scaled: 0,
                 residue: 0,
-                total_added: 0,
             }
         );
 
