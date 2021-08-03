@@ -15,9 +15,6 @@ pub enum ProfitDistributorHandleMsg {
     AddProfitToken {
         token: SecretContract,
     },
-    ChangeAdmin {
-        address: HumanAddr,
-    },
     Receive {
         sender: HumanAddr,
         from: HumanAddr,
@@ -33,9 +30,6 @@ pub enum ProfitDistributorHandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorHandleAnswer {
     AddProfitToken {
-        status: ProfitDistributorResponseStatus,
-    },
-    ChangeAdmin {
         status: ProfitDistributorResponseStatus,
     },
     Withdraw {
