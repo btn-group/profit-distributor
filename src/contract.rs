@@ -5,9 +5,7 @@ use crate::msg::{
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg, ProfitDistributorResponseStatus::Success,
 };
-use crate::state::{
-    Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
-};
+use crate::state::{Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, User};
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
@@ -22,13 +20,21 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
-        admin: env.message.sender.clone(),
         buttcoin: msg.buttcoin.clone(),
-        profit_tokens: vec![],
+        profit_token: msg.profit_token.clone(),
         total_shares: 0,
         viewing_key: msg.viewing_key.clone(),
     };
     config_store.store(CONFIG_KEY, &config)?;
+
+    // Store pool into database
+    TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
+        msg.profit_token.address.0.as_bytes(),
+        &Pool {
+            per_share_scaled: 0,
+            residue: 0,
+        },
+    )?;
 
     // https://github.com/enigmampc/secret-toolkit/tree/master/packages/snip20
     let messages = vec![
@@ -40,11 +46,25 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             msg.buttcoin.address.clone(),
         )?,
         snip20::set_viewing_key_msg(
-            msg.viewing_key,
+            msg.viewing_key.clone(),
             None,
             RESPONSE_BLOCK_SIZE,
             msg.buttcoin.contract_hash,
             msg.buttcoin.address,
+        )?,
+        snip20::register_receive_msg(
+            env.contract_code_hash.clone(),
+            None,
+            1,
+            msg.profit_token.contract_hash.clone(),
+            msg.profit_token.address.clone(),
+        )?,
+        snip20::set_viewing_key_msg(
+            msg.viewing_key,
+            None,
+            RESPONSE_BLOCK_SIZE,
+            msg.profit_token.contract_hash,
+            msg.profit_token.address,
         )?,
     ];
 
@@ -60,7 +80,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: ProfitDistributorHandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
-        ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount.u128(), msg),
@@ -142,55 +161,6 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn add_profit_token<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    token: SecretContract,
-) -> StdResult<HandleResponse> {
-    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
-    authorize(config.admin.clone(), env.message.sender)?;
-
-    if config.profit_tokens.contains(&token) {
-        return Err(StdError::generic_err(format!("Record not unique")));
-    }
-
-    // Store token into profit tokens vector
-    config.profit_tokens.push(token.clone());
-    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
-
-    // Store pool into database
-    TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
-        token.address.0.as_bytes(),
-        &Pool {
-            per_share_scaled: 0,
-            residue: 0,
-        },
-    )?;
-
-    Ok(HandleResponse {
-        messages: vec![
-            snip20::register_receive_msg(
-                env.contract_code_hash.clone(),
-                None,
-                1,
-                token.contract_hash.clone(),
-                token.address.clone(),
-            )?,
-            snip20::set_viewing_key_msg(
-                config.viewing_key,
-                None,
-                RESPONSE_BLOCK_SIZE,
-                token.contract_hash,
-                token.address,
-            )?,
-        ],
-        log: vec![],
-        data: Some(to_binary(&ProfitDistributorHandleAnswer::AddProfitToken {
-            status: Success,
-        })?),
-    })
-}
-
 fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -206,7 +176,7 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
         .unwrap_or(User { shares: 0 });
     let shares_after_transaction: u128 = user.shares + amount;
 
-    let messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+    let messages: Vec<CosmosMsg> = generate_message_to_claim_profit_and_update_debt(
         &mut deps.storage,
         config.clone(),
         shares_after_transaction,
@@ -231,7 +201,7 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
+fn generate_message_to_claim_profit_and_update_debt<S: Storage>(
     storage: &mut S,
     config: Config,
     shares_after_transaction: u128,
@@ -239,42 +209,42 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
     user: User,
 ) -> StdResult<Vec<CosmosMsg>> {
     let mut messages: Vec<CosmosMsg> = vec![];
-    for profit_token in config.profit_tokens {
-        let mut pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
-            .load(profit_token.address.0.as_bytes())
-            .unwrap();
-        let mut pool_user: PoolUser =
-            PoolUserStorage::from_storage(storage, profit_token.address.clone())
-                .get(user_address.clone())
-                .unwrap_or(PoolUser { debt: 0 });
-        if user.shares > 0 {
-            if pool.residue > 0 {
-                pool.per_share_scaled += pool.residue * CALCULATION_SCALE / config.total_shares;
-                pool.residue = 0;
-                TypedStoreMut::attach(storage)
-                    .store(profit_token.address.0.as_bytes(), &pool)
-                    .unwrap();
-            }
+    let profit_token = config.profit_token;
+    let mut pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
+        .load(profit_token.address.0.as_bytes())
+        .unwrap();
+    let mut pool_user: PoolUser =
+        PoolUserStorage::from_storage(storage, profit_token.address.clone())
+            .get(user_address.clone())
+            .unwrap_or(PoolUser { debt: 0 });
+    if user.shares > 0 {
+        if pool.residue > 0 {
+            pool.per_share_scaled += pool.residue * CALCULATION_SCALE / config.total_shares;
+            pool.residue = 0;
+            TypedStoreMut::attach(storage)
+                .store(profit_token.address.0.as_bytes(), &pool)
+                .unwrap();
+        }
 
-            if pool.per_share_scaled > 0 {
-                let claimable_profit: u128 =
-                    claimable_profit(pool.clone(), pool_user.clone(), user.clone());
-                if claimable_profit > 0 {
-                    messages.push(secret_toolkit::snip20::transfer_msg(
-                        user_address.clone(),
-                        Uint128(claimable_profit),
-                        None,
-                        RESPONSE_BLOCK_SIZE,
-                        profit_token.contract_hash,
-                        profit_token.address.clone(),
-                    )?);
-                }
+        if pool.per_share_scaled > 0 {
+            let claimable_profit: u128 =
+                claimable_profit(pool.clone(), pool_user.clone(), user.clone());
+            if claimable_profit > 0 {
+                messages.push(secret_toolkit::snip20::transfer_msg(
+                    user_address.clone(),
+                    Uint128(claimable_profit),
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    profit_token.contract_hash,
+                    profit_token.address.clone(),
+                )?);
             }
         }
-        pool_user.debt = shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
-        PoolUserStorage::from_storage(storage, profit_token.address)
-            .set(user_address.clone(), pool_user)
     }
+    pool_user.debt = shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
+    PoolUserStorage::from_storage(storage, profit_token.address)
+        .set(user_address.clone(), pool_user);
+
     Ok(messages)
 }
 
@@ -282,9 +252,8 @@ fn config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<B
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
 
     to_binary(&ProfitDistributorQueryAnswer::Config {
-        admin: config.admin,
         buttcoin: config.buttcoin,
-        profit_tokens: config.profit_tokens,
+        profit_token: config.profit_token,
         total_shares: Uint128(config.total_shares),
         viewing_key: config.viewing_key,
     })
@@ -327,7 +296,7 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
 
     let shares_after_transaction: u128 = user.shares - amount;
 
-    let mut messages: Vec<CosmosMsg> = generate_messages_to_claim_profits_and_update_debts(
+    let mut messages: Vec<CosmosMsg> = generate_message_to_claim_profit_and_update_debt(
         &mut deps.storage,
         config.clone(),
         shares_after_transaction,
@@ -386,6 +355,7 @@ mod tests {
         let mut deps = mock_dependencies(20, &[]);
         let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
+            profit_token: mock_profit_token(),
             viewing_key: mock_viewing_key(),
         };
         (init(&mut deps, env.clone(), msg), deps)
@@ -436,6 +406,22 @@ mod tests {
                     mock_buttcoin().address,
                 )
                 .unwrap(),
+                snip20::register_receive_msg(
+                    env.contract_code_hash.clone(),
+                    None,
+                    1,
+                    mock_profit_token().contract_hash.clone(),
+                    mock_profit_token().address.clone(),
+                )
+                .unwrap(),
+                snip20::set_viewing_key_msg(
+                    mock_viewing_key(),
+                    None,
+                    RESPONSE_BLOCK_SIZE,
+                    mock_profit_token().contract_hash,
+                    mock_profit_token().address,
+                )
+                .unwrap(),
             ]
         );
     }
@@ -453,15 +439,13 @@ mod tests {
         // Test that the desired fields are returned.
         match value {
             ProfitDistributorQueryAnswer::Config {
-                admin,
                 buttcoin,
-                profit_tokens,
+                profit_token,
                 total_shares,
                 viewing_key,
             } => {
-                assert_eq!(admin, config.admin);
                 assert_eq!(buttcoin, config.buttcoin);
-                assert_eq!(profit_tokens, config.profit_tokens);
+                assert_eq!(profit_token, config.profit_token);
                 assert_eq!(total_shares, Uint128(config.total_shares));
                 assert_eq!(viewing_key, config.viewing_key);
             }
@@ -470,81 +454,6 @@ mod tests {
     }
 
     // === HANDLE TESTS ===
-
-    #[test]
-    fn test_handle_add_profit_token() {
-        let (_init_result, mut deps) = init_helper();
-        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-
-        // When called by a non-admin
-        // It returns an unauthorized error
-        let msg = ProfitDistributorHandleMsg::AddProfitToken {
-            token: mock_profit_token(),
-        };
-        let env = mock_env(mock_profit_token().address.to_string(), &[]);
-        let handle_response = handle(&mut deps, env, msg.clone());
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::Unauthorized { backtrace: None }
-        );
-
-        // When called by an admin
-        let env = mock_env(MOCK_ADMIN, &[]);
-        let handle_response = handle(&mut deps, env.clone(), msg.clone());
-
-        // It registers a receive message for that token for this contract as well as setting a viewing key
-        let handle_response_unwrapped = handle_response.unwrap();
-        assert_eq!(
-            handle_response_unwrapped.messages,
-            vec![
-                snip20::register_receive_msg(
-                    env.contract_code_hash.clone(),
-                    None,
-                    1,
-                    mock_profit_token().contract_hash,
-                    mock_profit_token().address,
-                )
-                .unwrap(),
-                snip20::set_viewing_key_msg(
-                    config.viewing_key.clone(),
-                    None,
-                    RESPONSE_BLOCK_SIZE,
-                    mock_profit_token().contract_hash,
-                    mock_profit_token().address,
-                )
-                .unwrap(),
-            ]
-        );
-        let handle_response_data: ProfitDistributorHandleAnswer =
-            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&handle_response_data).unwrap(),
-            to_binary(&ProfitDistributorHandleAnswer::AddProfitToken { status: Success }).unwrap()
-        );
-
-        // It stores the profit token in config as a distributable token
-        let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-        assert_eq!(config.profit_tokens, vec![mock_profit_token()],);
-
-        // It stores a Pool struct for the token
-        let mock_profit_token_pool: Pool = TypedStore::attach(&deps.storage)
-            .load(mock_profit_token().address.0.as_bytes())
-            .unwrap();
-        assert_eq!(
-            mock_profit_token_pool,
-            Pool {
-                per_share_scaled: 0,
-                residue: 0,
-            }
-        );
-
-        // When adding a profit token that has already been added
-        let handle_response = handle(&mut deps, env.clone(), msg.clone());
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::generic_err(format!("Record not unique"))
-        );
-    }
 
     #[test]
     fn test_handle_receive_add_profit() {
@@ -575,15 +484,6 @@ mod tests {
         );
 
         // = When received token is an allowed profit token
-        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
-            token: mock_buttcoin(),
-        };
-        let handle_response = handle(
-            &mut deps,
-            mock_env(MOCK_ADMIN, &[]),
-            add_profit_token_msg.clone(),
-        );
-        handle_response.unwrap();
         // == With an amount of zero
         let receive_add_profit_msg = ProfitDistributorHandleMsg::Receive {
             amount: Uint128(0),
@@ -593,13 +493,13 @@ mod tests {
         };
         let handle_response = handle(
             &mut deps,
-            mock_env(mock_buttcoin().address.to_string(), &[]),
+            mock_env(mock_profit_token().address.to_string(), &[]),
             receive_add_profit_msg.clone(),
         );
         handle_response.unwrap();
         // == * It does not update the token's pool
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_buttcoin().address.0.as_bytes())
+            .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
         assert_eq!(pool.per_share_scaled, 0);
         assert_eq!(pool.residue, 0);
@@ -612,14 +512,14 @@ mod tests {
         };
         let handle_response = handle(
             &mut deps,
-            mock_env(mock_buttcoin().address.to_string(), &[]),
+            mock_env(mock_profit_token().address.to_string(), &[]),
             receive_add_profit_msg.clone(),
         );
         // === When there are no shares
         // === * It adds to the pool's residue
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_buttcoin().address.0.as_bytes())
+            .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
         assert_eq!(pool.per_share_scaled, 0);
         assert_eq!(pool.residue, amount.u128());
@@ -640,12 +540,12 @@ mod tests {
         // ==== * It calculates the per_share factoring in the new amount and the residue and resets the residue
         let handle_response = handle(
             &mut deps,
-            mock_env(mock_buttcoin().address.to_string(), &[]),
+            mock_env(mock_profit_token().address.to_string(), &[]),
             receive_add_profit_msg.clone(),
         );
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_buttcoin().address.0.as_bytes())
+            .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
         assert_eq!(
             pool.per_share_scaled,
@@ -655,12 +555,12 @@ mod tests {
         // ==== When adding profit when shares exist and no residue
         let handle_response = handle(
             &mut deps,
-            mock_env(mock_buttcoin().address.to_string(), &[]),
+            mock_env(mock_profit_token().address.to_string(), &[]),
             receive_add_profit_msg.clone(),
         );
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_buttcoin().address.0.as_bytes())
+            .load(mock_profit_token().address.0.as_bytes())
             .unwrap();
         assert_eq!(
             pool.per_share_scaled,
@@ -721,16 +621,6 @@ mod tests {
             .load(from.0.as_bytes())
             .unwrap();
         assert_eq!(user.shares, amount.u128());
-        // == When profit token is added
-        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
-            token: mock_buttcoin(),
-        };
-        handle(
-            &mut deps,
-            mock_env(MOCK_ADMIN, &[]),
-            add_profit_token_msg.clone(),
-        )
-        .unwrap();
         // === When more Buttcoin is added by the user
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
@@ -768,7 +658,7 @@ mod tests {
         };
         handle(
             &mut deps,
-            mock_env(mock_buttcoin().address, &[]),
+            mock_env(mock_profit_token().address, &[]),
             receive_add_profit_msg.clone(),
         )
         .unwrap();
@@ -793,8 +683,8 @@ mod tests {
                 Uint128(amount.u128() * 4),
                 None,
                 RESPONSE_BLOCK_SIZE,
-                mock_buttcoin().contract_hash,
-                mock_buttcoin().address.clone(),
+                mock_profit_token().contract_hash,
+                mock_profit_token().address.clone(),
             )
             .unwrap(),]
         );
@@ -814,7 +704,7 @@ mod tests {
         assert_eq!(user.shares, 3 * amount.u128());
         // ==== * It sets the correct PoolUser debt
         let buttcoin_pool_user: PoolUser =
-            PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
+            PoolUserStorage::from_storage(&mut deps.storage, mock_profit_token().address.clone())
                 .get(from.clone())
                 .unwrap();
         assert_eq!(
@@ -852,7 +742,7 @@ mod tests {
         assert_eq!(user.shares, 4 * amount.u128());
         // ===== * It sets the correct PoolUser debt
         let buttcoin_pool_user: PoolUser =
-            PoolUserStorage::from_storage(&mut deps.storage, mock_buttcoin().address.clone())
+            PoolUserStorage::from_storage(&mut deps.storage, mock_profit_token().address.clone())
                 .get(from.clone())
                 .unwrap();
         assert_eq!(
@@ -911,16 +801,6 @@ mod tests {
             msg.clone(),
         )
         .unwrap();
-        // === When profit token is added
-        let add_profit_token_msg = ProfitDistributorHandleMsg::AddProfitToken {
-            token: mock_buttcoin(),
-        };
-        handle(
-            &mut deps,
-            mock_env(MOCK_ADMIN, &[]),
-            add_profit_token_msg.clone(),
-        )
-        .unwrap();
         // ==== When more Buttcoin is added by the user
         let msg = ProfitDistributorHandleMsg::Receive {
             amount: amount,
@@ -943,7 +823,7 @@ mod tests {
         };
         handle(
             &mut deps,
-            mock_env(mock_buttcoin().address, &[]),
+            mock_env(mock_profit_token().address, &[]),
             receive_add_profit_msg.clone(),
         )
         .unwrap();
@@ -1017,7 +897,7 @@ mod tests {
             .unwrap();
         let user_shares_before_transaction: u128 = user.shares;
         let handle_response = handle(&mut deps, env, withdraw_msg.clone());
-        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer and sends reward
+        // ======= * It updates the user shares, total shares, sends the equivalent amount of Buttcoin to withdrawer and sends reward
         let handle_response_unwrapped = handle_response.unwrap();
         assert_eq!(
             handle_response_unwrapped.messages,
@@ -1027,8 +907,8 @@ mod tests {
                     Uint128(amount.u128() * 4),
                     None,
                     RESPONSE_BLOCK_SIZE,
-                    mock_buttcoin().contract_hash,
-                    mock_buttcoin().address.clone(),
+                    mock_profit_token().contract_hash,
+                    mock_profit_token().address.clone(),
                 )
                 .unwrap(),
                 secret_toolkit::snip20::transfer_msg(
@@ -1119,7 +999,7 @@ mod tests {
         };
         handle(
             &mut deps,
-            mock_env(mock_buttcoin().address, &[]),
+            mock_env(mock_profit_token().address, &[]),
             receive_add_profit_msg.clone(),
         )
         .unwrap();
@@ -1174,8 +1054,8 @@ mod tests {
                     Uint128(1331),
                     None,
                     RESPONSE_BLOCK_SIZE,
-                    mock_buttcoin().contract_hash,
-                    mock_buttcoin().address.clone(),
+                    mock_profit_token().contract_hash,
+                    mock_profit_token().address.clone(),
                 )
                 .unwrap(),
                 secret_toolkit::snip20::transfer_msg(

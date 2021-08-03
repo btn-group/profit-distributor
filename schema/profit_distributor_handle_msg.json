@@ -5,25 +5,6 @@
     {
       "type": "object",
       "required": [
-        "add_profit_token"
-      ],
-      "properties": {
-        "add_profit_token": {
-          "type": "object",
-          "required": [
-            "token"
-          ],
-          "properties": {
-            "token": {
-              "$ref": "#/definitions/SecretContract"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "receive"
       ],
       "properties": {
@@ -79,21 +60,6 @@
     },
     "HumanAddr": {
       "type": "string"
-    },
-    "SecretContract": {
-      "type": "object",
-      "required": [
-        "address",
-        "contract_hash"
-      ],
-      "properties": {
-        "address": {
-          "$ref": "#/definitions/HumanAddr"
-        },
-        "contract_hash": {
-          "type": "string"
-        }
-      }
     },
     "Uint128": {
       "type": "string"
