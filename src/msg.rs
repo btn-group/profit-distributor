@@ -37,7 +37,6 @@ pub enum ProfitDistributorHandleAnswer {
 pub enum ProfitDistributorQueryMsg {
     Config {},
     ClaimableProfit {
-        token_address: HumanAddr,
         user_address: HumanAddr,
         key: String,
     },

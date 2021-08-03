@@ -93,11 +93,9 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     match msg {
         ProfitDistributorQueryMsg::Config {} => config(deps),
-        ProfitDistributorQueryMsg::ClaimableProfit {
-            token_address,
-            user_address,
-            ..
-        } => query_claimable_profit(deps, &token_address, &user_address),
+        ProfitDistributorQueryMsg::ClaimableProfit { user_address, .. } => {
+            query_claimable_profit(deps, &user_address)
+        }
     }
 }
 
@@ -111,20 +109,23 @@ fn claimable_profit(pool: Pool, pool_user: PoolUser, user: User) -> u128 {
 
 fn query_claimable_profit<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    token_address: &HumanAddr,
     user_address: &HumanAddr,
 ) -> StdResult<Binary> {
     let mut amount: u128 = 0;
+    let config = TypedStore::<Config, S>::attach(&deps.storage).load(CONFIG_KEY)?;
     // Load user
     let user = TypedStore::<User, S>::attach(&deps.storage).load(user_address.0.as_bytes())?;
     if user.shares > 0 {
         // Load pool
-        let pool: Pool = TypedStore::attach(&deps.storage).load(token_address.0.as_bytes())?;
+        let pool: Pool =
+            TypedStore::attach(&deps.storage).load(config.profit_token.address.0.as_bytes())?;
         // Load pool_user
-        let pool_user: PoolUser =
-            PoolUserReadonlyStorage::from_storage(&deps.storage, token_address.clone())
-                .get(user_address.clone())
-                .unwrap_or(PoolUser { debt: 0 });
+        let pool_user: PoolUser = PoolUserReadonlyStorage::from_storage(
+            &deps.storage,
+            config.profit_token.address.clone(),
+        )
+        .get(user_address.clone())
+        .unwrap_or(PoolUser { debt: 0 });
         amount = claimable_profit(pool, pool_user, user);
     }
 
