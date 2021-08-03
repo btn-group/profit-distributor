@@ -600,20 +600,12 @@ mod tests {
             sender: from.clone(),
             msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
         };
-        let handle_response = handle(
+        handle(
             &mut deps,
             mock_env(mock_buttcoin().address.to_string(), &[]),
             msg.clone(),
-        );
-        // = * It mints the shares tokens to the user depositer
-        let handle_response_unwrapped = handle_response.unwrap();
-        let handle_response_data: ProfitDistributorReceiveAnswer =
-            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&handle_response_data).unwrap(),
-            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-                .unwrap()
-        );
+        )
+        .unwrap();
 
         // = * It adds amount to user and total shares
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
@@ -629,21 +621,13 @@ mod tests {
             sender: from.clone(),
             msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
         };
-        let handle_response = handle(
+        handle(
             &mut deps,
             mock_env(mock_buttcoin().address.to_string(), &[]),
             msg.clone(),
-        );
-        // === * It add to user shares, total shares and mints more share tokens for user
-        let handle_response_unwrapped = handle_response.unwrap();
-        let handle_response_data: ProfitDistributorReceiveAnswer =
-            from_binary(&handle_response_unwrapped.data.unwrap()).unwrap();
-        assert_eq!(
-            to_binary(&handle_response_data).unwrap(),
-            to_binary(&ProfitDistributorReceiveAnswer::DepositButtcoin { status: Success })
-                .unwrap()
-        );
-
+        )
+        .unwrap();
+        // === * It add to user shares and total shares
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
         assert_eq!(config.total_shares, 2 * amount.u128());
         let user: User = TypedStore::attach(&deps.storage)
@@ -764,7 +748,7 @@ mod tests {
             mock_env(mock_buttcoin().address.to_string(), &[]),
             msg.clone(),
         );
-        // ====== * It add to user shares, total shares, mints more share tokens for user (But does not send any reward tokens to user)
+        // ====== * It add to user shares, total shares and does not send any reward tokens to user
         let handle_response_unwrapped = handle_response.unwrap();
         assert_eq!(handle_response_unwrapped.messages, vec![]);
         let handle_response_data: ProfitDistributorReceiveAnswer =
@@ -855,7 +839,7 @@ mod tests {
             .unwrap();
         let user_shares_before_transaction: u128 = user.shares;
         let handle_response = handle(&mut deps, env, withdraw_msg.clone());
-        // ======= * It updates the user shares, total shares, burns the tokens received and sends the equivalent amount of Buttcoin to withdrawer
+        // ======= * It updates the user shares, total shares and sends the equivalent amount of Buttcoin to withdrawer
         let handle_response_unwrapped = handle_response.unwrap();
         assert_eq!(
             handle_response_unwrapped.messages,
@@ -949,7 +933,7 @@ mod tests {
         };
         let env = mock_env(from.to_string(), &[]);
         let handle_response = handle(&mut deps, env, withdraw_msg.clone());
-        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer (No rewards to send)
+        // ======= * It updates the user shares, total shares and sends the equivalent amount of Buttcoin to withdrawer (No rewards to send)
         let handle_response_unwrapped = handle_response.unwrap();
         assert_eq!(
             handle_response_unwrapped.messages,
@@ -1045,7 +1029,7 @@ mod tests {
         };
         let env = mock_env(from_two.to_string(), &[]);
         let handle_response = handle(&mut deps, env, withdraw_msg.clone());
-        // ======= * It updates the user shares, total shares, burns the tokens received, sends the equivalent amount of Buttcoin to withdrawer
+        // ======= * It updates the user shares, total shares, sends Buttcoin and profit token to withdrawer
         let handle_response_unwrapped = handle_response.unwrap();
         assert_eq!(
             handle_response_unwrapped.messages,
