@@ -24,25 +24,6 @@
     {
       "type": "object",
       "required": [
-        "change_admin"
-      ],
-      "properties": {
-        "change_admin": {
-          "type": "object",
-          "required": [
-            "address"
-          ],
-          "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "receive"
       ],
       "properties": {

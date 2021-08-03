@@ -61,7 +61,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     match msg {
         ProfitDistributorHandleMsg::AddProfitToken { token } => add_profit_token(deps, env, token),
-        ProfitDistributorHandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         ProfitDistributorHandleMsg::Receive {
             from, amount, msg, ..
         } => receive(deps, env, from, amount.u128(), msg),
@@ -187,26 +186,6 @@ fn add_profit_token<S: Storage, A: Api, Q: Querier>(
         ],
         log: vec![],
         data: Some(to_binary(&ProfitDistributorHandleAnswer::AddProfitToken {
-            status: Success,
-        })?),
-    })
-}
-
-fn change_admin<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    address: HumanAddr,
-) -> StdResult<HandleResponse> {
-    let mut config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
-    authorize(config.admin, env.message.sender)?;
-
-    config.admin = address;
-    TypedStoreMut::<Config, S>::attach(&mut deps.storage).store(CONFIG_KEY, &config)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&ProfitDistributorHandleAnswer::ChangeAdmin {
             status: Success,
         })?),
     })
@@ -464,36 +443,6 @@ mod tests {
     // === QUERY TESTS ===
 
     #[test]
-    fn test_change_admin() {
-        let (init_result, mut deps) = init_helper();
-
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = ProfitDistributorHandleMsg::ChangeAdmin {
-            address: HumanAddr("bob".to_string()),
-        };
-        let handle_result = handle(&mut deps, mock_env(MOCK_ADMIN, &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let res = query(&deps, ProfitDistributorQueryMsg::Config {}).unwrap();
-        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
-        match value {
-            ProfitDistributorQueryAnswer::Config { admin, .. } => {
-                assert_eq!(admin, HumanAddr("bob".to_string()))
-            }
-            _ => panic!("at the taco bell"),
-        }
-    }
-
-    #[test]
     fn test_config() {
         let (_init_result, deps) = init_helper();
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
@@ -595,39 +544,6 @@ mod tests {
             handle_response.unwrap_err(),
             StdError::generic_err(format!("Record not unique"))
         );
-    }
-
-    #[test]
-    fn test_handle_change_admin() {
-        let (_init_result, mut deps) = init_helper();
-
-        // = When called by a non-admin
-        // = * It returns an unauthorized error
-        let change_admin_msg = ProfitDistributorHandleMsg::ChangeAdmin {
-            address: mock_buttcoin().address,
-        };
-        let handle_response = handle(
-            &mut deps,
-            mock_env(mock_buttcoin().address, &[]),
-            change_admin_msg.clone(),
-        );
-        assert_eq!(
-            handle_response.unwrap_err(),
-            StdError::Unauthorized { backtrace: None }
-        );
-
-        // = When called by an admin
-        // = * It changes the admin
-        let handle_response = handle(
-            &mut deps,
-            mock_env(MOCK_ADMIN, &[]),
-            change_admin_msg.clone(),
-        );
-        handle_response.unwrap();
-        let config: Config = TypedStoreMut::attach(&mut deps.storage)
-            .load(CONFIG_KEY)
-            .unwrap();
-        assert_eq!(config.admin, mock_buttcoin().address);
     }
 
     #[test]
