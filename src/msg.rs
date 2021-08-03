@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ProfitDistributorInitMsg {
     pub buttcoin: SecretContract,
-    pub prng_seed: Binary,
     pub viewing_key: String,
 }
 
@@ -64,8 +63,9 @@ pub enum ProfitDistributorQueryAnswer {
     Config {
         admin: HumanAddr,
         buttcoin: SecretContract,
-        contract_address: HumanAddr,
         profit_tokens: Vec<SecretContract>,
+        total_shares: Uint128,
+        viewing_key: String,
     },
 
     QueryError {

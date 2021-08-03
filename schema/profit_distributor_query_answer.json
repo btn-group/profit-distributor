@@ -32,8 +32,9 @@
           "required": [
             "admin",
             "buttcoin",
-            "contract_address",
-            "profit_tokens"
+            "profit_tokens",
+            "total_shares",
+            "viewing_key"
           ],
           "properties": {
             "admin": {
@@ -42,14 +43,17 @@
             "buttcoin": {
               "$ref": "#/definitions/SecretContract"
             },
-            "contract_address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
             "profit_tokens": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/SecretContract"
               }
+            },
+            "total_shares": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "viewing_key": {
+              "type": "string"
             }
           }
         }

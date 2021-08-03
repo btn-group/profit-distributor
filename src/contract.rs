@@ -5,7 +5,6 @@ use crate::msg::{
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg, ProfitDistributorResponseStatus::Success,
 };
-
 use crate::state::{
     Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, SecretContract, User,
 };
@@ -13,7 +12,6 @@ use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
 };
-use secret_toolkit::crypto::sha_256;
 use secret_toolkit::snip20;
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
@@ -22,13 +20,10 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: ProfitDistributorInitMsg,
 ) -> StdResult<InitResponse> {
-    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     let mut config_store = TypedStoreMut::attach(&mut deps.storage);
     let config = Config {
         admin: env.message.sender.clone(),
         buttcoin: msg.buttcoin.clone(),
-        contract_address: env.contract.address.clone(),
-        prng_seed: prng_seed_hashed.to_vec(),
         profit_tokens: vec![],
         total_shares: 0,
         viewing_key: msg.viewing_key.clone(),
@@ -79,7 +74,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: ProfitDistributorQueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        ProfitDistributorQueryMsg::Config {} => public_config(deps),
+        ProfitDistributorQueryMsg::Config {} => config(deps),
         ProfitDistributorQueryMsg::ClaimableProfit {
             token_address,
             user_address,
@@ -304,14 +299,15 @@ fn generate_messages_to_claim_profits_and_update_debts<S: Storage>(
     Ok(messages)
 }
 
-fn public_config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+fn config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
     let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY)?;
 
     to_binary(&ProfitDistributorQueryAnswer::Config {
         admin: config.admin,
         buttcoin: config.buttcoin,
-        contract_address: config.contract_address,
         profit_tokens: config.profit_tokens,
+        total_shares: Uint128(config.total_shares),
+        viewing_key: config.viewing_key,
     })
 }
 
@@ -411,7 +407,6 @@ mod tests {
         let mut deps = mock_dependencies(20, &[]);
         let msg = ProfitDistributorInitMsg {
             buttcoin: mock_buttcoin(),
-            prng_seed: Binary::from("some-prng-seed".as_bytes()),
             viewing_key: mock_viewing_key(),
         };
         (init(&mut deps, env.clone(), msg), deps)
@@ -499,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn test_public_config() {
+    fn test_config() {
         let (_init_result, deps) = init_helper();
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
 
@@ -511,13 +506,15 @@ mod tests {
             ProfitDistributorQueryAnswer::Config {
                 admin,
                 buttcoin,
-                contract_address,
                 profit_tokens,
+                total_shares,
+                viewing_key,
             } => {
                 assert_eq!(admin, config.admin);
                 assert_eq!(buttcoin, config.buttcoin);
-                assert_eq!(contract_address, config.contract_address);
                 assert_eq!(profit_tokens, config.profit_tokens);
+                assert_eq!(total_shares, Uint128(config.total_shares));
+                assert_eq!(viewing_key, config.viewing_key);
             }
             _ => panic!("at the taco bell"),
         }
@@ -1098,7 +1095,6 @@ mod tests {
         let withdraw_msg = ProfitDistributorHandleMsg::Withdraw { amount: amount };
         let env = mock_env(from.to_string(), &[]);
         let config: Config = TypedStore::attach(&deps.storage).load(CONFIG_KEY).unwrap();
-        config.total_shares;
         let total_shares_before_transaction: u128 = config.total_shares;
         let user: User = TypedStore::attach(&deps.storage)
             .load(from.0.as_bytes())
