@@ -30,24 +30,17 @@
         "config": {
           "type": "object",
           "required": [
-            "admin",
             "buttcoin",
-            "profit_tokens",
+            "profit_token",
             "total_shares",
             "viewing_key"
           ],
           "properties": {
-            "admin": {
-              "$ref": "#/definitions/HumanAddr"
-            },
             "buttcoin": {
               "$ref": "#/definitions/SecretContract"
             },
-            "profit_tokens": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/SecretContract"
-              }
+            "profit_token": {
+              "$ref": "#/definitions/SecretContract"
             },
             "total_shares": {
               "$ref": "#/definitions/Uint128"

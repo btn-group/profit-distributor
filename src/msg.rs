@@ -6,15 +6,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ProfitDistributorInitMsg {
     pub buttcoin: SecretContract,
+    pub profit_token: SecretContract,
     pub viewing_key: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorHandleMsg {
-    AddProfitToken {
-        token: SecretContract,
-    },
     Receive {
         sender: HumanAddr,
         from: HumanAddr,
@@ -29,9 +27,6 @@ pub enum ProfitDistributorHandleMsg {
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorHandleAnswer {
-    AddProfitToken {
-        status: ProfitDistributorResponseStatus,
-    },
     Withdraw {
         status: ProfitDistributorResponseStatus,
     },
@@ -55,9 +50,8 @@ pub enum ProfitDistributorQueryAnswer {
         amount: Uint128,
     },
     Config {
-        admin: HumanAddr,
         buttcoin: SecretContract,
-        profit_tokens: Vec<SecretContract>,
+        profit_token: SecretContract,
         total_shares: Uint128,
         viewing_key: String,
     },

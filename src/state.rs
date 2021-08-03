@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
-    pub admin: HumanAddr,
     pub buttcoin: SecretContract,
-    pub profit_tokens: Vec<SecretContract>,
+    pub profit_token: SecretContract,
     pub total_shares: u128,
     pub viewing_key: String,
 }

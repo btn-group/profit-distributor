@@ -4,10 +4,14 @@
   "type": "object",
   "required": [
     "buttcoin",
+    "profit_token",
     "viewing_key"
   ],
   "properties": {
     "buttcoin": {
+      "$ref": "#/definitions/SecretContract"
+    },
+    "profit_token": {
       "$ref": "#/definitions/SecretContract"
     },
     "viewing_key": {
