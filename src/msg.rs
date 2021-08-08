@@ -36,10 +36,7 @@ pub enum ProfitDistributorHandleAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorQueryMsg {
     Config {},
-    ClaimableProfit {
-        user_address: HumanAddr,
-        key: String,
-    },
+    ClaimableProfit { user_address: HumanAddr },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
