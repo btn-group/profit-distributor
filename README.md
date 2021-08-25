@@ -28,3 +28,26 @@ We think privacy is important, but it should be privacy for individuals and tran
 
 ###  Why we implemented then removed the pool shares token
 The only reason we implemented a pool shares token was so that it could be used for users that deposited Buttcoin into this contract to still be able to vote. With what's going on in the world and from what I've seen in other crypto protocols, governance is a total sham. It's being used to look like there is a democratic process to disguise clear and present nepotism. Blockchain was created to counter this sort of thing. "Code is law" is the ethos. If there was ever to be a democratizing process, it must be based on one vote per person. I understand that democracy amongst share holders is different, but I don't like how this false democracy is being portrayed to users. We are going to stick to immutable code as was intended when Blockchain was conceptualized.
+
+## Testing locally
+```
+// 1. Run chain locally
+docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $(pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev
+
+// 2. Access container via separate terminal window
+docker exec -it secretdev /bin/bash
+
+// 3. cd into code folder
+cd code
+
+// 4. Store the contract (Specify your keyring. Mine is named test etc.)
+secretcli tx compute store buttcoin-distributor.wasm.gz --from a --gas 3000000 -y --keyring-backend test
+
+// 5. Get the contract's id
+secretcli query compute list-code
+
+// 6. Init Buttcoin 
+CODE_ID=2
+INIT='{"buttcoin": {"address": "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg", "contract_hash": "4CD7F64B9ADE65200E595216265932A0C7689C4804BE7B4A5F8CEBED250BF7EA"}, "end_block": 1000000000, "starting_block": 100, "release_per_block": "100", "viewing_key": "testing"}'
+secretcli tx compute instantiate $CODE_ID "$INIT" --from a --label "buttcoin-distributor" -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+```
