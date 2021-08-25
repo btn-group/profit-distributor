@@ -46,8 +46,8 @@ secretcli tx compute store buttcoin-distributor.wasm.gz --from a --gas 3000000 -
 // 5. Get the contract's id
 secretcli query compute list-code
 
-// 6. Init Buttcoin 
-CODE_ID=2
-INIT='{"buttcoin": {"address": "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg", "contract_hash": "4CD7F64B9ADE65200E595216265932A0C7689C4804BE7B4A5F8CEBED250BF7EA"}, "end_block": 1000000000, "starting_block": 100, "release_per_block": "100", "viewing_key": "testing"}'
-secretcli tx compute instantiate $CODE_ID "$INIT" --from a --label "buttcoin-distributor" -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+// 6. Init profit distributor 
+CODE_ID=3
+INIT='{"buttcoin": {"address": "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg", "contract_hash": "4CD7F64B9ADE65200E595216265932A0C7689C4804BE7B4A5F8CEBED250BF7EA"}, "profit_token": {"address": "secret13nkgqrfymug724h8pprpexqj9h629sa3heqh0t", "contract_hash": "35F5DB2BC5CD56815D10C7A567D6827BECCB8EAF45BC3FA016930C4A8209EA69"}, "viewing_key": "testing"}'
+secretcli tx compute instantiate $CODE_ID "$INIT" --from a --label "profit-distributor" -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
 ```
