@@ -1,8 +1,5 @@
-use cosmwasm_std::{HumanAddr, ReadonlyStorage, StdResult, Storage};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
+use cosmwasm_std::HumanAddr;
 use schemars::JsonSchema;
-use secret_toolkit::serialization::{Bincode2, Serde};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -19,11 +16,6 @@ pub struct Pool {
     pub residue: u128,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PoolUser {
-    pub debt: u128,
-}
-
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone, JsonSchema)]
 pub struct SecretContract {
     pub address: HumanAddr,
@@ -32,75 +24,6 @@ pub struct SecretContract {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
+    pub debt: u128,
     pub shares: u128,
-}
-
-// === PoolsUsers Storage ===
-pub struct PoolUserReadonlyStorage<'a, S: Storage> {
-    storage: ReadonlyPrefixedStorage<'a, S>,
-}
-impl<'a, S: Storage> PoolUserReadonlyStorage<'a, S> {
-    pub fn from_storage(storage: &'a S, token_address: HumanAddr) -> Self {
-        Self {
-            storage: ReadonlyPrefixedStorage::new(token_address.0.as_bytes(), storage),
-        }
-    }
-
-    pub fn get(&mut self, user_address: HumanAddr) -> Option<PoolUser> {
-        self.as_readonly().get(user_address.0.as_bytes())
-    }
-
-    // private
-
-    fn as_readonly(&self) -> ReadonlyPoolUserStorageImpl<ReadonlyPrefixedStorage<S>> {
-        ReadonlyPoolUserStorageImpl(&self.storage)
-    }
-}
-
-pub struct PoolUserStorage<'a, S: Storage> {
-    storage: PrefixedStorage<'a, S>,
-}
-impl<'a, S: Storage> PoolUserStorage<'a, S> {
-    pub fn from_storage(storage: &'a mut S, token_address: HumanAddr) -> Self {
-        Self {
-            storage: PrefixedStorage::new(token_address.0.as_bytes(), storage),
-        }
-    }
-
-    pub fn get(&mut self, user_address: HumanAddr) -> Option<PoolUser> {
-        self.as_readonly().get(user_address.0.as_bytes())
-    }
-
-    pub fn set(&mut self, user_address: HumanAddr, value: PoolUser) {
-        save(&mut self.storage, user_address.0.as_bytes(), &value).ok();
-    }
-
-    // private
-
-    fn as_readonly(&self) -> ReadonlyPoolUserStorageImpl<PrefixedStorage<S>> {
-        ReadonlyPoolUserStorageImpl(&self.storage)
-    }
-}
-
-struct ReadonlyPoolUserStorageImpl<'a, S: ReadonlyStorage>(&'a S);
-impl<'a, S: ReadonlyStorage> ReadonlyPoolUserStorageImpl<'a, S> {
-    pub fn get(&self, key: &[u8]) -> Option<PoolUser> {
-        may_load(self.0, &key).ok().unwrap()
-    }
-}
-
-// === FUNCTIONS ===
-fn may_load<T: DeserializeOwned, S: ReadonlyStorage>(
-    storage: &S,
-    key: &[u8],
-) -> StdResult<Option<T>> {
-    match storage.get(key) {
-        Some(value) => Bincode2::deserialize(&value).map(Some),
-        None => Ok(None),
-    }
-}
-
-fn save<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], value: &T) -> StdResult<()> {
-    storage.set(key, &Bincode2::serialize(value)?);
-    Ok(())
 }

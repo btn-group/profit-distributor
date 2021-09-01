@@ -22,13 +22,9 @@
         "claimable_profit": {
           "type": "object",
           "required": [
-            "key",
             "user_address"
           ],
           "properties": {
-            "key": {
-              "type": "string"
-            },
             "user_address": {
               "$ref": "#/definitions/HumanAddr"
             }
