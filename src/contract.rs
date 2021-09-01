@@ -1,11 +1,11 @@
 use crate::authorize::authorize;
-use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, RESPONSE_BLOCK_SIZE};
+use crate::constants::{CALCULATION_SCALE, CONFIG_KEY, POOL_KEY, RESPONSE_BLOCK_SIZE};
 use crate::msg::{
     ProfitDistributorHandleAnswer, ProfitDistributorHandleMsg, ProfitDistributorInitMsg,
     ProfitDistributorQueryAnswer, ProfitDistributorQueryMsg, ProfitDistributorReceiveAnswer,
     ProfitDistributorReceiveMsg, ProfitDistributorResponseStatus::Success,
 };
-use crate::state::{Config, Pool, PoolUser, PoolUserReadonlyStorage, PoolUserStorage, User};
+use crate::state::{Config, Pool, User};
 use cosmwasm_std::{
     from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     InitResponse, Querier, StdError, StdResult, Storage, Uint128,
@@ -29,7 +29,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     // Store pool into database
     TypedStoreMut::<Pool, S>::attach(&mut deps.storage).store(
-        msg.profit_token.address.0.as_bytes(),
+        POOL_KEY,
         &Pool {
             per_share_scaled: 0,
             residue: 0,
@@ -41,7 +41,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         snip20::register_receive_msg(
             env.contract_code_hash.clone(),
             None,
-            1,
+            RESPONSE_BLOCK_SIZE,
             msg.buttcoin.contract_hash.clone(),
             msg.buttcoin.address.clone(),
         )?,
@@ -55,7 +55,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         snip20::register_receive_msg(
             env.contract_code_hash.clone(),
             None,
-            1,
+            RESPONSE_BLOCK_SIZE,
             msg.profit_token.contract_hash.clone(),
             msg.profit_token.address.clone(),
         )?,
@@ -99,11 +99,11 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-fn claimable_profit(pool: Pool, pool_user: PoolUser, user: User) -> u128 {
+fn claimable_profit(pool: Pool, user: User) -> u128 {
     if pool.residue > 0 {
         pool.residue
     } else {
-        user.shares * pool.per_share_scaled / CALCULATION_SCALE - pool_user.debt
+        user.shares * pool.per_share_scaled / CALCULATION_SCALE - user.debt
     }
 }
 
@@ -112,21 +112,12 @@ fn query_claimable_profit<S: Storage, A: Api, Q: Querier>(
     user_address: &HumanAddr,
 ) -> StdResult<Binary> {
     let mut amount: u128 = 0;
-    let config = TypedStore::<Config, S>::attach(&deps.storage).load(CONFIG_KEY)?;
     // Load user
     let user = TypedStore::<User, S>::attach(&deps.storage).load(user_address.0.as_bytes())?;
     if user.shares > 0 {
         // Load pool
-        let pool: Pool =
-            TypedStore::attach(&deps.storage).load(config.profit_token.address.0.as_bytes())?;
-        // Load pool_user
-        let pool_user: PoolUser = PoolUserReadonlyStorage::from_storage(
-            &deps.storage,
-            config.profit_token.address.clone(),
-        )
-        .get(user_address.clone())
-        .unwrap_or(PoolUser { debt: 0 });
-        amount = claimable_profit(pool, pool_user, user);
+        let pool: Pool = TypedStore::attach(&deps.storage).load(POOL_KEY)?;
+        amount = claimable_profit(pool, user);
     }
 
     to_binary(&ProfitDistributorQueryAnswer::ClaimableProfit {
@@ -139,10 +130,11 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: u128,
 ) -> StdResult<HandleResponse> {
-    let token_address_as_bytes = env.message.sender.0.as_bytes();
-    let mut pool: Pool = TypedStoreMut::attach(&mut deps.storage).load(token_address_as_bytes)?;
+    let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
+    authorize(config.profit_token.address, env.message.sender)?;
+
+    let mut pool: Pool = TypedStoreMut::attach(&mut deps.storage).load(POOL_KEY)?;
     if amount > 0 {
-        let config: Config = TypedStoreMut::attach(&mut deps.storage).load(CONFIG_KEY)?;
         if config.total_shares == 0 {
             pool.residue += amount;
         } else {
@@ -150,7 +142,7 @@ fn add_profit<S: Storage, A: Api, Q: Querier>(
                 (amount + pool.residue) * CALCULATION_SCALE / config.total_shares;
             pool.residue = 0;
         };
-        TypedStoreMut::attach(&mut deps.storage).store(token_address_as_bytes, &pool)?;
+        TypedStoreMut::attach(&mut deps.storage).store(POOL_KEY, &pool)?;
     }
 
     Ok(HandleResponse {
@@ -169,12 +161,11 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
     amount: u128,
 ) -> StdResult<HandleResponse> {
     let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
-
     authorize(config.buttcoin.address.clone(), env.message.sender.clone())?;
 
-    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+    let user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
         .load(from.0.as_bytes())
-        .unwrap_or(User { shares: 0 });
+        .unwrap_or(User { debt: 0, shares: 0 });
     let shares_after_transaction: u128 = user.shares + amount;
 
     let messages: Vec<CosmosMsg> = generate_message_to_claim_profit_and_update_debt(
@@ -184,6 +175,9 @@ fn deposit_buttcoin<S: Storage, A: Api, Q: Querier>(
         from.clone(),
         user.clone(),
     )?;
+    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+        .load(from.0.as_bytes())
+        .unwrap();
 
     // Update user shares
     user.shares = shares_after_transaction;
@@ -207,29 +201,24 @@ fn generate_message_to_claim_profit_and_update_debt<S: Storage>(
     config: Config,
     shares_after_transaction: u128,
     user_address: HumanAddr,
-    user: User,
+    mut user: User,
 ) -> StdResult<Vec<CosmosMsg>> {
     let mut messages: Vec<CosmosMsg> = vec![];
     let profit_token = config.profit_token;
     let mut pool: Pool = TypedStoreMut::<Pool, S>::attach(storage)
-        .load(profit_token.address.0.as_bytes())
+        .load(POOL_KEY)
         .unwrap();
-    let mut pool_user: PoolUser =
-        PoolUserStorage::from_storage(storage, profit_token.address.clone())
-            .get(user_address.clone())
-            .unwrap_or(PoolUser { debt: 0 });
     if user.shares > 0 {
         if pool.residue > 0 {
             pool.per_share_scaled += pool.residue * CALCULATION_SCALE / config.total_shares;
             pool.residue = 0;
             TypedStoreMut::attach(storage)
-                .store(profit_token.address.0.as_bytes(), &pool)
+                .store(POOL_KEY, &pool)
                 .unwrap();
         }
 
         if pool.per_share_scaled > 0 {
-            let claimable_profit: u128 =
-                claimable_profit(pool.clone(), pool_user.clone(), user.clone());
+            let claimable_profit: u128 = claimable_profit(pool.clone(), user.clone());
             if claimable_profit > 0 {
                 messages.push(secret_toolkit::snip20::transfer_msg(
                     user_address.clone(),
@@ -242,9 +231,8 @@ fn generate_message_to_claim_profit_and_update_debt<S: Storage>(
             }
         }
     }
-    pool_user.debt = shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
-    PoolUserStorage::from_storage(storage, profit_token.address)
-        .set(user_address.clone(), pool_user);
+    user.debt = shares_after_transaction * pool.per_share_scaled / CALCULATION_SCALE;
+    TypedStoreMut::<User, S>::attach(storage).store(user_address.0.as_bytes(), &user)?;
 
     Ok(messages)
 }
@@ -285,7 +273,7 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     let amount: u128 = amount.u128();
     let mut config = TypedStoreMut::<Config, S>::attach(&mut deps.storage).load(CONFIG_KEY)?;
 
-    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+    let user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
         .load(env.message.sender.0.as_bytes())
         .unwrap();
     if amount > user.shares {
@@ -304,6 +292,9 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
         env.message.sender.clone(),
         user.clone(),
     )?;
+    let mut user = TypedStoreMut::<User, S>::attach(&mut deps.storage)
+        .load(env.message.sender.0.as_bytes())
+        .unwrap();
 
     if amount > 0 {
         // Update user shares
@@ -342,7 +333,7 @@ mod tests {
     use crate::state::SecretContract;
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::StdError::NotFound;
+    use cosmwasm_std::StdError::Unauthorized;
 
     pub const MOCK_ADMIN: &str = "admin";
 
@@ -394,7 +385,7 @@ mod tests {
                 snip20::register_receive_msg(
                     env.contract_code_hash.clone(),
                     None,
-                    1,
+                    RESPONSE_BLOCK_SIZE,
                     mock_buttcoin().contract_hash.clone(),
                     mock_buttcoin().address.clone(),
                 )
@@ -410,7 +401,7 @@ mod tests {
                 snip20::register_receive_msg(
                     env.contract_code_hash.clone(),
                     None,
-                    1,
+                    RESPONSE_BLOCK_SIZE,
                     mock_profit_token().contract_hash.clone(),
                     mock_profit_token().address.clone(),
                 )
@@ -478,10 +469,7 @@ mod tests {
         );
         assert_eq!(
             handle_response.unwrap_err(),
-            NotFound {
-                kind: "cw_profit_distributor::state::Pool".to_string(),
-                backtrace: None
-            }
+            Unauthorized { backtrace: None }
         );
 
         // = When received token is an allowed profit token
@@ -500,7 +488,7 @@ mod tests {
         handle_response.unwrap();
         // == * It does not update the token's pool
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_profit_token().address.0.as_bytes())
+            .load(POOL_KEY)
             .unwrap();
         assert_eq!(pool.per_share_scaled, 0);
         assert_eq!(pool.residue, 0);
@@ -520,7 +508,7 @@ mod tests {
         // === * It adds to the pool's residue
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_profit_token().address.0.as_bytes())
+            .load(POOL_KEY)
             .unwrap();
         assert_eq!(pool.per_share_scaled, 0);
         assert_eq!(pool.residue, amount.u128());
@@ -546,7 +534,7 @@ mod tests {
         );
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_profit_token().address.0.as_bytes())
+            .load(POOL_KEY)
             .unwrap();
         assert_eq!(
             pool.per_share_scaled,
@@ -561,7 +549,7 @@ mod tests {
         );
         handle_response.unwrap();
         let pool: Pool = TypedStoreMut::attach(&mut deps.storage)
-            .load(mock_profit_token().address.0.as_bytes())
+            .load(POOL_KEY)
             .unwrap();
         assert_eq!(
             pool.per_share_scaled,
@@ -687,13 +675,9 @@ mod tests {
             .load(from.0.as_bytes())
             .unwrap();
         assert_eq!(user.shares, 3 * amount.u128());
-        // ==== * It sets the correct PoolUser debt
-        let buttcoin_pool_user: PoolUser =
-            PoolUserStorage::from_storage(&mut deps.storage, mock_profit_token().address.clone())
-                .get(from.clone())
-                .unwrap();
+        // ==== * It sets the correct debt
         assert_eq!(
-            buttcoin_pool_user.debt,
+            user.debt,
             user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
         );
         // ===== When more Buttcoin is added by the user
@@ -725,13 +709,9 @@ mod tests {
             .load(from.0.as_bytes())
             .unwrap();
         assert_eq!(user.shares, 4 * amount.u128());
-        // ===== * It sets the correct PoolUser debt
-        let buttcoin_pool_user: PoolUser =
-            PoolUserStorage::from_storage(&mut deps.storage, mock_profit_token().address.clone())
-                .get(from.clone())
-                .unwrap();
+        // ===== * It sets the correct debt
         assert_eq!(
-            buttcoin_pool_user.debt,
+            user.debt,
             user.shares * 4 * 333 * CALCULATION_SCALE / (amount.u128() * 2) / CALCULATION_SCALE
         );
         // ====== When Buttcoin is added by anothe user
@@ -971,7 +951,7 @@ mod tests {
             handle_response.unwrap_err(),
             StdError::generic_err(format!(
                 "insufficient funds to withdraw: balance={}, required={}",
-                user.shares, 1,
+                user.shares, RESPONSE_BLOCK_SIZE,
             ))
         );
 
