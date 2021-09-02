@@ -47,13 +47,11 @@ pub enum ProfitDistributorQueryAnswer {
     },
     Config {
         buttcoin: SecretContract,
+        per_share_scaled: Uint128,
+        residue: Uint128,
         profit_token: SecretContract,
         total_shares: Uint128,
         viewing_key: String,
-    },
-
-    QueryError {
-        msg: String,
     },
 }
 
@@ -79,5 +77,4 @@ pub enum ProfitDistributorReceiveAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum ProfitDistributorResponseStatus {
     Success,
-    Failure,
 }

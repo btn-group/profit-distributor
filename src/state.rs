@@ -8,10 +8,6 @@ pub struct Config {
     pub profit_token: SecretContract,
     pub total_shares: u128,
     pub viewing_key: String,
-}
-
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
-pub struct Pool {
     pub per_share_scaled: u128,
     pub residue: u128,
 }
