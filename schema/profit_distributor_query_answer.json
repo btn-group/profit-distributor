@@ -31,7 +31,9 @@
           "type": "object",
           "required": [
             "buttcoin",
+            "per_share_scaled",
             "profit_token",
+            "residue",
             "total_shares",
             "viewing_key"
           ],
@@ -39,32 +41,19 @@
             "buttcoin": {
               "$ref": "#/definitions/SecretContract"
             },
+            "per_share_scaled": {
+              "$ref": "#/definitions/Uint128"
+            },
             "profit_token": {
               "$ref": "#/definitions/SecretContract"
+            },
+            "residue": {
+              "$ref": "#/definitions/Uint128"
             },
             "total_shares": {
               "$ref": "#/definitions/Uint128"
             },
             "viewing_key": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "query_error"
-      ],
-      "properties": {
-        "query_error": {
-          "type": "object",
-          "required": [
-            "msg"
-          ],
-          "properties": {
-            "msg": {
               "type": "string"
             }
           }
