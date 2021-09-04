@@ -89,7 +89,20 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         ProfitDistributorQueryMsg::ClaimableProfit { user_address, .. } => {
             query_claimable_profit(deps, &user_address)
         }
+        ProfitDistributorQueryMsg::User { user_address, .. } => query_user(deps, &user_address),
     }
+}
+
+fn query_user<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    user_address: &HumanAddr,
+) -> StdResult<Binary> {
+    let user = TypedStore::<User, S>::attach(&deps.storage).load(user_address.0.as_bytes())?;
+
+    to_binary(&ProfitDistributorQueryAnswer::User {
+        debt: Uint128(user.debt),
+        shares: Uint128(user.shares),
+    })
 }
 
 fn query_claimable_profit<S: Storage, A: Api, Q: Querier>(
@@ -386,6 +399,38 @@ mod tests {
                 assert_eq!(residue, Uint128(config.residue));
                 assert_eq!(total_shares, Uint128(config.total_shares));
                 assert_eq!(viewing_key, config.viewing_key);
+            }
+            _ => panic!("at the taco bell"),
+        }
+    }
+
+    #[test]
+    fn test_user() {
+        let user = HumanAddr::from("user");
+        let (_init_result, mut deps) = init_helper();
+        let receive_deposit_buttcoin_msg = ProfitDistributorHandleMsg::Receive {
+            amount: Uint128(1),
+            from: user.clone(),
+            sender: user.clone(),
+            msg: to_binary(&ProfitDistributorReceiveMsg::DepositButtcoin {}).unwrap(),
+        };
+        handle(
+            &mut deps,
+            mock_env(mock_buttcoin().address.to_string(), &[]),
+            receive_deposit_buttcoin_msg.clone(),
+        )
+        .unwrap();
+
+        let res = query(
+            &deps,
+            ProfitDistributorQueryMsg::User { user_address: user },
+        )
+        .unwrap();
+        let value: ProfitDistributorQueryAnswer = from_binary(&res).unwrap();
+        match value {
+            ProfitDistributorQueryAnswer::User { debt, shares } => {
+                assert_eq!(debt, Uint128(0));
+                assert_eq!(shares, Uint128(1));
             }
             _ => panic!("at the taco bell"),
         }

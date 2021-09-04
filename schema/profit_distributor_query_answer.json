@@ -59,6 +59,29 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "user"
+      ],
+      "properties": {
+        "user": {
+          "type": "object",
+          "required": [
+            "debt",
+            "shares"
+          ],
+          "properties": {
+            "debt": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "shares": {
+              "$ref": "#/definitions/Uint128"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {

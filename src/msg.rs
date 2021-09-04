@@ -37,6 +37,7 @@ pub enum ProfitDistributorHandleAnswer {
 pub enum ProfitDistributorQueryMsg {
     Config {},
     ClaimableProfit { user_address: HumanAddr },
+    User { user_address: HumanAddr },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -52,6 +53,10 @@ pub enum ProfitDistributorQueryAnswer {
         profit_token: SecretContract,
         total_shares: Uint128,
         viewing_key: String,
+    },
+    User {
+        debt: Uint128,
+        shares: Uint128,
     },
 }
 
