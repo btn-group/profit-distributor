@@ -43,11 +43,40 @@ cd code
 // 4. Store the contract (Specify your keyring. Mine is named test etc.)
 secretcli tx compute store buttcoin-distributor.wasm.gz --from a --gas 3000000 -y --keyring-backend test
 
-// 5. Get the contract's id
+// 5. Get the contract's id and hash
 secretcli query compute list-code
 
 // 6. Init profit distributor 
 CODE_ID=3
 INIT='{"buttcoin": {"address": "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg", "contract_hash": "4CD7F64B9ADE65200E595216265932A0C7689C4804BE7B4A5F8CEBED250BF7EA"}, "profit_token": {"address": "secret13nkgqrfymug724h8pprpexqj9h629sa3heqh0t", "contract_hash": "35F5DB2BC5CD56815D10C7A567D6827BECCB8EAF45BC3FA016930C4A8209EA69"}, "viewing_key": "testing"}'
 secretcli tx compute instantiate $CODE_ID "$INIT" --from a --label "profit-distributor" -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+
+// 7. Get the contract instance's address
+secretcli query compute list-contract-by-code 3
+CODE_HASH=BF78E4C9A6E0563072D36DEF3D6C44FB2BD8FED15932A5ECAD4915200D728813
+CONTRACT_INSTANCE_ADDRESS=secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa
+BUTTCOIN_INSTANCE_ADDRESS=secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg
+SEFI_ADDRESS=secret13nkgqrfymug724h8pprpexqj9h629sa3heqh0t
+
+// 8. Query Config
+secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"config": {}}'
+
+// 10. Query User
+secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"user": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
+secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"user": {"user_address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j"}}'
+
+// 11. Query user's profit token balance and Buttcoin balance
+secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29", "key": "testing"}}'
+secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j", "key": "testing"}}'
+secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa", "key": "testing"}}'
+
+secretcli query compute query $BUTTCOIN_INSTANCE_ADDRESS '{"balance": {"address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29", "key": "testing"}}'
+secretcli query compute query $BUTTCOIN_INSTANCE_ADDRESS '{"balance": {"address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j", "key": "testing"}}'
+
+// 12. Withdraw
+secretcli tx compute execute $CONTRACT_INSTANCE_ADDRESS '{"withdraw": {"amount": "50"}}' --from b -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+
+// 13. Claimable profit
+secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"claimable_profit": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
+secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"claimable_profit": {"user_address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j"}}'
 ```
