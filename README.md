@@ -41,7 +41,7 @@ docker exec -it secretdev /bin/bash
 cd code
 
 // 4. Store the contract (Specify your keyring. Mine is named test etc.)
-secretcli tx compute store buttcoin-distributor.wasm.gz --from a --gas 3000000 -y --keyring-backend test
+secretcli tx compute store profit-distributor.wasm.gz --from a --gas 3000000 -y --keyring-backend test
 
 // 5. Get the contract's id and hash
 secretcli query compute list-code
@@ -52,31 +52,24 @@ INIT='{"buttcoin": {"address": "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg", 
 secretcli tx compute instantiate $CODE_ID "$INIT" --from a --label "profit-distributor" -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
 
 // 7. Get the contract instance's address
-secretcli query compute list-contract-by-code 3
+secretcli query compute list-contract-by-code $CODE_ID
 CODE_HASH=BF78E4C9A6E0563072D36DEF3D6C44FB2BD8FED15932A5ECAD4915200D728813
-CONTRACT_INSTANCE_ADDRESS=secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa
-BUTTCOIN_INSTANCE_ADDRESS=secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg
+CONTRACT_ADDRESS=secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa
+BUTTCOIN_ADDRESS=secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg
 SEFI_ADDRESS=secret13nkgqrfymug724h8pprpexqj9h629sa3heqh0t
 
-// 8. Query Config
-secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"config": {}}'
+// Querys
+secretcli query compute query $CONTRACT_ADDRESS '{"config": {}}'
+secretcli query compute query $CONTRACT_ADDRESS '{"user": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
+secretcli query compute query $CONTRACT_ADDRESS '{"claimable_profit": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
 
-// 10. Query User
-secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"user": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
-secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"user": {"user_address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j"}}'
+// Related and direct handle functions
+https://codebeautify.org/base64-encode => { "add_profit": {} }
 
-// 11. Query user's profit token balance and Buttcoin balance
-secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29", "key": "testing"}}'
-secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j", "key": "testing"}}'
-secretcli query compute query $SEFI_ADDRESS '{"balance": {"address": "secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa", "key": "testing"}}'
-
-secretcli query compute query $BUTTCOIN_INSTANCE_ADDRESS '{"balance": {"address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29", "key": "testing"}}'
-secretcli query compute query $BUTTCOIN_INSTANCE_ADDRESS '{"balance": {"address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j", "key": "testing"}}'
-
-// 12. Withdraw
-secretcli tx compute execute $CONTRACT_INSTANCE_ADDRESS '{"withdraw": {"amount": "50"}}' --from b -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
-
-// 13. Claimable profit
-secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"claimable_profit": {"user_address": "secret1czmr5ayunec5cy77au95vwepwttrn5zaq3uv29"}}'
-secretcli query compute query $CONTRACT_INSTANCE_ADDRESS '{"claimable_profit": {"user_address": "secret1jn8scpcuhmfue4w9nnq2z9zrzz2nz2rawjgx0j"}}'
+// Add profit
+secretcli tx compute execute $SEFI_ADDRESS '{"send": { "recipient": "secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa", "amount": "100", "msg": "eyAiYWRkX3Byb2ZpdCI6IHt9IH0=" }}' --from a -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+// Deposit Buttcoin into profit distributor
+secretcli tx compute execute $BUTTCOIN_ADDRESS '{"send": { "recipient": "secret13zt4jm739kckv744dag8jlqj4vqe5zfwcajxpa", "amount": "1", "msg": "eyAiZGVwb3NpdF9idXR0Y29pbiI6IHt9IH0=" }}' --from a -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
+// Withdraw
+secretcli tx compute execute $CONTRACT_ADDRESS '{"withdraw": {"amount": "1"}}' --from a -y --keyring-backend test --gas 3000000 --gas-prices=3.0uscrt
 ```
